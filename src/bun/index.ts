@@ -1,7 +1,41 @@
-import { BrowserWindow, Updater } from "electrobun/bun";
+import { BrowserView, BrowserWindow, Updater, Utils } from "electrobun/bun";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
+
+// RPC schema shared between bun and webview
+type MixxxaRPCSchema = {
+	bun: {
+		requests: {
+			openFileDialog: {
+				params: { allowedFileTypes?: string };
+				response: string | null;
+			};
+		};
+		messages: Record<string, never>;
+	};
+	webview: {
+		requests: Record<string, never>;
+		messages: Record<string, never>;
+	};
+};
+
+const rpc = BrowserView.defineRPC<MixxxaRPCSchema>({
+	handlers: {
+		requests: {
+			openFileDialog: async ({ allowedFileTypes }) => {
+				const paths = await Utils.openFileDialog({
+					allowedFileTypes: allowedFileTypes ?? "xml",
+					canChooseFiles: true,
+					canChooseDirectory: false,
+					allowsMultipleSelection: false,
+				});
+				return paths.length > 0 ? paths[0] : null;
+			},
+		},
+		messages: {},
+	},
+});
 
 // Check if Vite dev server is running for HMR
 async function getMainViewUrl(): Promise<string> {
@@ -20,18 +54,18 @@ async function getMainViewUrl(): Promise<string> {
 	return "views://mainview/index.html";
 }
 
-// Create the main application window
 const url = await getMainViewUrl();
 
-const mainWindow = new BrowserWindow({
-	title: "React + Tailwind + Vite",
+const _mainWindow = new BrowserWindow({
+	title: "mixxxa",
 	url,
+	rpc,
 	frame: {
-		width: 900,
-		height: 700,
-		x: 200,
-		y: 200,
+		width: 1200,
+		height: 800,
+		x: 100,
+		y: 100,
 	},
 });
 
-console.log("React Tailwind Vite app started!");
+console.log("mixxxa started!");

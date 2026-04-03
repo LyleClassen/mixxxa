@@ -9,6 +9,7 @@ bun.lock
 build/
 dist/
 *.local
+artifacts/
 
 # AI
 .opencode
