@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+*.pnp
+*.pnp.js
+bun.lock
+
+
+# Build & dist
+build/
+dist/
+*.local
+
+# AI
+.opencode
+.claude
+.agent
