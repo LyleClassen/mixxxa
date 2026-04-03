@@ -8,6 +8,10 @@ export type MixxxaRPCSchema = ElectrobunRPCSchema & {
 				params: { allowedFileTypes?: string };
 				response: string | null;
 			};
+			readFile: {
+				params: { path: string };
+				response: string;
+			};
 		};
 		messages: Record<string, never>;
 	};

@@ -11,6 +11,10 @@ type MixxxaRPCSchema = {
 				params: { allowedFileTypes?: string };
 				response: string | null;
 			};
+			readFile: {
+				params: { path: string };
+				response: string;
+			};
 		};
 		messages: Record<string, never>;
 	};
@@ -31,6 +35,9 @@ const rpc = BrowserView.defineRPC<MixxxaRPCSchema>({
 					allowsMultipleSelection: false,
 				});
 				return paths.length > 0 ? paths[0] : null;
+			},
+			readFile: async ({ path }) => {
+				return await Bun.file(path).text();
 			},
 		},
 		messages: {},

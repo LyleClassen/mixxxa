@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { parseRekordboxXml, type Track } from "./rekordbox-parser";
+import { rpc } from "./rpc";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -10,12 +11,7 @@ interface CollectionState {
 }
 
 async function loadXml(path: string): Promise<string> {
-	// In Electrobun's browser context the file:// scheme is accessible via fetch.
-	// Encode the path so spaces etc. are safe.
-	const url = `file://${path.startsWith("/") ? "" : "/"}${encodeURI(path)}`;
-	const res = await fetch(url);
-	if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
-	return res.text();
+	return rpc.request.readFile({ path });
 }
 
 export function useCollection(xmlPath: string | null) {
