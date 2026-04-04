@@ -12,6 +12,10 @@ export type MixxxaRPCSchema = ElectrobunRPCSchema & {
 				params: { path: string };
 				response: string;
 			};
+			getAudioServerPort: {
+				params: Record<string, never>;
+				response: number;
+			};
 		};
 		messages: Record<string, never>;
 	};

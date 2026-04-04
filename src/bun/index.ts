@@ -15,6 +15,10 @@ type MixxxaRPCSchema = {
 				params: { path: string };
 				response: string;
 			};
+			getAudioServerPort: {
+				params: Record<string, never>;
+				response: number;
+			};
 		};
 		messages: Record<string, never>;
 	};
@@ -24,7 +28,17 @@ type MixxxaRPCSchema = {
 	};
 };
 
+const audioServer = Bun.serve({
+	port: 0,
+	fetch(req) {
+		const filePath = new URL(req.url).searchParams.get("path");
+		if (!filePath) return new Response("Missing path", { status: 400 });
+		return new Response(Bun.file(filePath));
+	},
+});
+
 const rpc = BrowserView.defineRPC<MixxxaRPCSchema>({
+	maxRequestTime: Infinity,
 	handlers: {
 		requests: {
 			openFileDialog: async ({ allowedFileTypes }) => {
@@ -37,6 +51,7 @@ const rpc = BrowserView.defineRPC<MixxxaRPCSchema>({
 				const validPaths = paths.filter((p) => p.length > 0);
 				return validPaths.length > 0 ? validPaths[0] : null;
 			},
+			getAudioServerPort: async () => audioServer.port,
 			readFile: async ({ path }) => {
 				const file = Bun.file(path);
 				if (!(await file.exists())) {

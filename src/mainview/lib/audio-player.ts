@@ -1,3 +1,5 @@
+import { rpc } from "./rpc";
+
 export type PlaybackStatus = "stopped" | "playing" | "paused" | "error";
 
 export interface PlaybackState {
@@ -43,10 +45,7 @@ class AudioPlayer {
 		return this.state;
 	}
 
-	play(filePath: string, trackId: string) {
-		// file:// URL — encode only the path portion
-		const url = `file://${filePath.startsWith("/") ? "" : "/"}${encodeURI(filePath)}`;
-
+	async play(filePath: string, trackId: string) {
 		if (
 			this.state.currentTrackId === trackId &&
 			this.state.status === "paused"
@@ -56,6 +55,8 @@ class AudioPlayer {
 				.then(() => this.update({ status: "playing", errorMessage: null }));
 			return;
 		}
+
+		const url = await getAudioUrl(filePath);
 
 		this.audio.pause();
 		this.audio.src = url;
@@ -84,6 +85,15 @@ class AudioPlayer {
 			errorMessage: null,
 		});
 	}
+}
+
+let audioServerPort: number | null = null;
+
+async function getAudioUrl(filePath: string): Promise<string> {
+	if (audioServerPort === null) {
+		audioServerPort = await rpc.request.getAudioServerPort({});
+	}
+	return `http://localhost:${audioServerPort}/audio?path=${encodeURIComponent(filePath)}`;
 }
 
 // Singleton
