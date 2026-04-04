@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "electrobun": {
+      "source": "gyorkluu/electrobun-skills",
+      "sourceType": "github",
+      "computedHash": "4e37d138754cead75bce301fb31318800b2b7772c7a8de10ae36ae7dcac9aa42"
+    }
+  }
+}

@@ -93,27 +93,16 @@ export function CollectionTable({
 					// biome-ignore lint/a11y/noStaticElementInteractions: div-based table layout; role set conditionally
 					<div
 						key={col.label}
-						role={
-							col.key && col.key !== "#" && col.key !== ""
-								? "button"
-								: undefined
-						}
-						tabIndex={
-							col.key && col.key !== "#" && col.key !== "" ? 0 : undefined
-						}
+						role={col.key && col.key !== "#" ? "button" : undefined}
+						tabIndex={col.key && col.key !== "#" ? 0 : undefined}
 						className={`${col.width} px-1 truncate ${col.key && col.key !== "#" ? "cursor-pointer hover:text-white" : ""}`}
 						onClick={() => {
-							if (col.key && col.key !== "#" && col.key !== "") {
+							if (col.key && col.key !== "#") {
 								handleColumnClick(col.key as SortKey);
 							}
 						}}
 						onKeyDown={(e) => {
-							if (
-								e.key === "Enter" &&
-								col.key &&
-								col.key !== "#" &&
-								col.key !== ""
-							) {
+							if (e.key === "Enter" && col.key && col.key !== "#") {
 								handleColumnClick(col.key as SortKey);
 							}
 						}}

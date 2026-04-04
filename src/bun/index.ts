@@ -34,10 +34,15 @@ const rpc = BrowserView.defineRPC<MixxxaRPCSchema>({
 					canChooseDirectory: false,
 					allowsMultipleSelection: false,
 				});
-				return paths.length > 0 ? paths[0] : null;
+				const validPaths = paths.filter((p) => p.length > 0);
+				return validPaths.length > 0 ? validPaths[0] : null;
 			},
 			readFile: async ({ path }) => {
-				return await Bun.file(path).text();
+				const file = Bun.file(path);
+				if (!(await file.exists())) {
+					throw new Error(`File not found: ${path}`);
+				}
+				return await file.text();
 			},
 		},
 		messages: {},
@@ -63,7 +68,7 @@ async function getMainViewUrl(): Promise<string> {
 
 const url = await getMainViewUrl();
 
-const _mainWindow = new BrowserWindow({
+void new BrowserWindow({
 	title: "mixxxa",
 	url,
 	rpc,
