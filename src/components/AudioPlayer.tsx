@@ -1,4 +1,4 @@
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { Pause, Play, Volume2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Track } from '../types';
@@ -9,10 +9,17 @@ interface AudioPlayerProps {
   track: Track | null;
 }
 
+function fmt(s: number) {
+  const m = Math.floor(s / 60);
+  return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+}
+
 export function AudioPlayer({ track }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(0.8);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [audioError, setAudioError] = useState<string | null>(null);
 
   // When track changes, reset state and load new source
@@ -22,9 +29,17 @@ export function AudioPlayer({ track }: AudioPlayerProps) {
 
     setIsPlaying(false);
     setAudioError(null);
+    setCurrentTime(0);
+    setDuration(0);
 
     if (track?.file_path) {
-      audio.src = convertFileSrc(track.file_path);
+      const src = convertFileSrc(track.file_path);
+      console.log('[AudioPlayer] file_path:', track.file_path);
+      console.log('[AudioPlayer] asset url:', src);
+      invoke<string>('check_file', { path: track.file_path })
+        .then(r => console.log('[AudioPlayer] rust file check:', r))
+        .catch(e => console.error('[AudioPlayer] rust file check failed:', e));
+      audio.src = src;
       audio.load();
     } else {
       audio.src = '';
@@ -61,8 +76,12 @@ export function AudioPlayer({ track }: AudioPlayerProps) {
   }
 
   function handleError() {
+    const audio = audioRef.current;
+    const code = audio?.error?.code;
+    const msg = audio?.error?.message ?? 'unknown';
+    console.error('[AudioPlayer] MediaError code:', code, msg);
     setIsPlaying(false);
-    setAudioError('Unable to play this track');
+    setAudioError(`Unable to play this track (MediaError ${code})`);
   }
 
   return (
@@ -72,7 +91,9 @@ export function AudioPlayer({ track }: AudioPlayerProps) {
         ref={audioRef}
         onEnded={handleEnded}
         onError={handleError}
-        preload="none"
+        onTimeUpdate={() => setCurrentTime(audioRef.current?.currentTime ?? 0)}
+        onLoadedMetadata={() => setDuration(audioRef.current?.duration ?? 0)}
+        preload="metadata"
       />
 
       {/* Play/pause button */}
@@ -92,7 +113,7 @@ export function AudioPlayer({ track }: AudioPlayerProps) {
       </Button>
 
       {/* Track info */}
-      <div className="min-w-0 flex-1">
+      <div className="w-40 shrink-0">
         {track ? (
           <>
             <p className="truncate text-sm font-medium text-[#e8e8f0]">{track.title || 'Unknown Title'}</p>
@@ -105,6 +126,25 @@ export function AudioPlayer({ track }: AudioPlayerProps) {
           <p className="mt-0.5 text-xs text-[#d63031]">{audioError}</p>
         )}
       </div>
+
+      {/* Seek bar */}
+      <Slider
+        value={[currentTime]}
+        onValueChange={([v]) => {
+          if (audioRef.current) audioRef.current.currentTime = v ?? 0;
+        }}
+        min={0}
+        max={duration || 1}
+        step={0.1}
+        disabled={!track || !duration}
+        className="flex-1"
+        aria-label="Seek"
+      />
+
+      {/* Time display */}
+      <span className="w-20 shrink-0 text-center text-xs tabular-nums text-[#55556a]">
+        {fmt(currentTime)} / {fmt(duration)}
+      </span>
 
       {/* Volume control */}
       <div className="flex items-center gap-2">

@@ -66,6 +66,14 @@ async fn load_collection(
 }
 
 #[tauri::command]
+async fn check_file(path: String) -> Result<String, String> {
+    match std::fs::metadata(&path) {
+        Ok(m) => Ok(format!("ok: {} bytes", m.len())),
+        Err(e) => Err(format!("error: {e}")),
+    }
+}
+
+#[tauri::command]
 async fn get_all_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, AppError> {
     let guard = state.0.lock().unwrap();
     match guard.as_ref() {
@@ -135,6 +143,7 @@ pub fn run() {
             load_collection,
             get_all_tracks,
             get_playlist_tracks,
+            check_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
