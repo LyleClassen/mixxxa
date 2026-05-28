@@ -7,12 +7,12 @@ const rpc = Electroview.defineRPC<MixxxRPC>({
   handlers: { requests: {}, messages: {} },
 });
 const electroview = new Electroview({ rpc });
-import { 
-  Play, 
-  SkipBack, 
-  SkipForward, 
-  Search, 
-  Plus, 
+import {
+  Play,
+  SkipBack,
+  SkipForward,
+  Search,
+  Plus,
   Disc3,
   Piano,
   Settings,
@@ -42,15 +42,15 @@ function App() {
   const [activeTab, setActiveTab] = useState("collection");
 
   async function handleAddTracks() {
-    const content = await electroview.rpc!.request.openXmlFile();
-    if (content !== null) {
+    const contents = await electroview.rpc!.request.getContents();
+    for (const content of contents) {
       console.log(content);
     }
   }
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground font-sans selection:bg-primary/30">
-      
+
       {/* Sidebar */}
       <aside className="w-64 flex flex-col bg-card border-r border-border shrink-0">
         <div className="p-6 flex items-center gap-3">
@@ -68,7 +68,7 @@ function App() {
               <span className="text-2xl font-black text-primary">11B</span>
               <div className="text-xs text-muted-foreground mt-1">A Major</div>
             </div>
-            
+
             {/* Mock wheel segments (simplified visual representation) */}
             <div className="absolute top-0 left-1/2 w-1 h-full -translate-x-1/2 bg-muted/50 rotate-45"></div>
             <div className="absolute top-0 left-1/2 w-1 h-full -translate-x-1/2 bg-muted/50 -rotate-45"></div>
@@ -107,30 +107,30 @@ function App() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
-        
+
         {/* Header Tabs */}
         <header className="h-16 flex items-center justify-between border-b border-border px-6 bg-card shrink-0">
           <div className="flex h-full">
-            <button 
+            <button
               onClick={() => setActiveTab("collection")}
               className={`px-6 h-full font-semibold text-sm border-b-2 transition-colors ${activeTab === "collection" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
             >
               COLLECTION
             </button>
-            <button 
+            <button
               onClick={() => setActiveTab("tags")}
               className={`px-6 h-full font-semibold text-sm border-b-2 transition-colors ${activeTab === "tags" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
             >
               EDIT TAGS
             </button>
-            <button 
+            <button
               onClick={() => setActiveTab("personalize")}
               className={`px-6 h-full font-semibold text-sm border-b-2 transition-colors ${activeTab === "personalize" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
             >
               PERSONALIZE
             </button>
           </div>
-          
+
           <div className="flex items-center gap-6 text-sm font-medium text-muted-foreground">
             <button className="hover:text-foreground transition-colors">TUTORIALS</button>
             <button className="hover:text-foreground transition-colors">SOFTWARE</button>
@@ -151,7 +151,7 @@ function App() {
                 <SkipForward size={20} />
               </button>
             </div>
-            
+
             <div className="flex-1 h-16 bg-muted/30 rounded-lg relative overflow-hidden flex items-center px-4 border border-border/50">
               {/* Mock Waveform bars */}
               <div className="absolute inset-0 flex items-center gap-[2px] opacity-60 px-2">
@@ -159,15 +159,15 @@ function App() {
                   const height = 10 + Math.random() * 80;
                   const isPlayed = i < 30;
                   return (
-                    <div 
-                      key={i} 
-                      className={`flex-1 rounded-sm ${isPlayed ? 'bg-primary' : 'bg-muted-foreground/40'}`} 
+                    <div
+                      key={i}
+                      className={`flex-1 rounded-sm ${isPlayed ? 'bg-primary' : 'bg-muted-foreground/40'}`}
                       style={{ height: `${height}%` }}
                     />
                   );
                 })}
               </div>
-              
+
               {/* Cue markers */}
               <div className="absolute top-0 left-[15%] h-full w-px bg-accent z-10 shadow-[0_0_10px_var(--accent)]">
                 <div className="bg-accent text-accent-foreground text-[10px] font-bold px-1 py-0.5 rounded-b-sm absolute top-0 -translate-x-1/2 whitespace-nowrap">
@@ -224,9 +224,9 @@ function App() {
           <div className="px-6 py-3 border-b border-border flex items-center justify-between shrink-0">
             <div className="relative w-64">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <input 
-                type="text" 
-                placeholder="Search your Analysis Queue" 
+              <input
+                type="text"
+                placeholder="Search your Analysis Queue"
                 className="w-full bg-muted/50 border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all placeholder:text-muted-foreground/70"
               />
             </div>

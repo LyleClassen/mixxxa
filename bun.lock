@@ -10,6 +10,7 @@
         "clsx": "^2.1.1",
         "electrobun": "1.18.1",
         "lucide-react": "^1.17.0",
+        "rbox-js": "^0.1.7",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
         "tailwind-merge": "^3.6.0",
@@ -27,6 +28,9 @@
         "vite": "^6.0.3",
       },
     },
+  },
+  "patchedDependencies": {
+    "rbox-js@0.1.7": "patches/rbox-js@0.1.7.patch",
   },
   "packages": {
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
@@ -74,6 +78,12 @@
     "@base-ui-components/react": ["@base-ui-components/react@1.0.0-rc.0", "", { "dependencies": { "@babel/runtime": "^7.28.4", "@base-ui-components/utils": "0.2.2", "@floating-ui/react-dom": "^2.1.6", "@floating-ui/utils": "^0.2.10", "reselect": "^5.1.1", "tabbable": "^6.3.0", "use-sync-external-store": "^1.6.0" }, "peerDependencies": { "@types/react": "^17 || ^18 || ^19", "react": "^17 || ^18 || ^19", "react-dom": "^17 || ^18 || ^19" }, "optionalPeers": ["@types/react"] }, "sha512-9lhUFbJcbXvc9KulLev1WTFxS/alJRBWDH/ibKSQaNvmDwMFS2gKp1sTeeldYSfKuS/KC1w2MZutc0wHu2hRHQ=="],
 
     "@base-ui-components/utils": ["@base-ui-components/utils@0.2.2", "", { "dependencies": { "@babel/runtime": "^7.28.4", "@floating-ui/utils": "^0.2.10", "reselect": "^5.1.1", "use-sync-external-store": "^1.6.0" }, "peerDependencies": { "@types/react": "^17 || ^18 || ^19", "react": "^17 || ^18 || ^19", "react-dom": "^17 || ^18 || ^19" }, "optionalPeers": ["@types/react"] }, "sha512-rNJCD6TFy3OSRDKVHJDzLpxO3esTV1/drRtWNUpe7rCpPN9HZVHUCuP+6rdDYDGWfXnQHbqi05xOyRP2iZAlkw=="],
+
+    "@dylanljones/rbox-js-darwin-universal": ["@dylanljones/rbox-js-darwin-universal@0.1.7", "", { "os": "darwin" }, "sha512-eQx8XlRoS7zVKBsEhVo7TsUG0ssTcrBAHR0xpFYmIk1xK4reAng8ePk5Y8gxpUUN6dLyKda31QLWv4VYb0HPew=="],
+
+    "@dylanljones/rbox-js-linux-x64-gnu": ["@dylanljones/rbox-js-linux-x64-gnu@0.1.7", "", { "os": "linux", "cpu": "x64" }, "sha512-iFTinRNtNgxws0YScXDREMzUFz6muVvAdgzCqI+tAn2XnL0dNzxRC+eSdIfuPGe5dIN2x6yNnuSSgn1eboIACw=="],
+
+    "@dylanljones/rbox-js-win32-x64-msvc": ["@dylanljones/rbox-js-win32-x64-msvc@0.1.7", "", { "os": "win32", "cpu": "x64" }, "sha512-6cQL0kAyljtnfNloxxGGwb73O/OS6eIWhIiGc3pmpBqZLGy6iZiwNZcD1Jw8FjcxX+vc7gv7LHfp70hKZJb4yw=="],
 
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.25.12", "", { "os": "aix", "cpu": "ppc64" }, "sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA=="],
 
@@ -418,6 +428,8 @@
     "proxy-agent": ["proxy-agent@6.5.0", "", { "dependencies": { "agent-base": "^7.1.2", "debug": "^4.3.4", "http-proxy-agent": "^7.0.1", "https-proxy-agent": "^7.0.6", "lru-cache": "^7.14.1", "pac-proxy-agent": "^7.1.0", "proxy-from-env": "^1.1.0", "socks-proxy-agent": "^8.0.5" } }, "sha512-TmatMXdr2KlRiA2CyDu8GqR8EjahTG3aY3nXjdzFyoZbmB8hrBsTyMezhULIXKnC0jpfjlmiZ3+EaCzoInSu/A=="],
 
     "proxy-from-env": ["proxy-from-env@1.1.0", "", {}, "sha512-D+zkORCbA9f1tdWRK0RaCR3GPv50cMxcrz4X8k5LTSUD1Dkw47mKJEZQNunItRTkWwgtaUSo1RVFRIG9ZXiFYg=="],
+
+    "rbox-js": ["rbox-js@0.1.7", "", { "optionalDependencies": { "@dylanljones/rbox-js-darwin-universal": "0.1.7", "@dylanljones/rbox-js-linux-x64-gnu": "0.1.7", "@dylanljones/rbox-js-win32-x64-msvc": "0.1.7" } }, "sha512-S5ErWXLSjekBtfxW4EmmIWD3BoN+5d9qfvORWyPQmd+mKEwWfW7cS4Tti9e6xRAdubToJO7CVqNSVBKWV/8YXg=="],
 
     "rcedit": ["rcedit@4.0.1", "", { "dependencies": { "cross-spawn-windows-exe": "^1.1.0" } }, "sha512-bZdaQi34krFWhrDn+O53ccBDw0MkAT2Vhu75SqhtvhQu4OPyFM4RoVheyYiVQYdjhUi6EJMVWQ0tR6bCIYVkUg=="],
 

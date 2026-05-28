@@ -1,5 +1,6 @@
 import { BrowserWindow, BrowserView, Utils, Updater } from "electrobun/bun";
 import type { MixxxRPC } from "../shared/types";
+import { MasterDb } from "rbox-js";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -34,6 +35,10 @@ const rpc = BrowserView.defineRPC<MixxxRPC>({
 				if (!files || files.length === 0 || files[0] === "") return null;
 				const content = await Bun.file(files[0]).text();
 				return content;
+			},
+			getContents: async () => {
+				const db = MasterDb.open();
+				return db.getContents();
 			},
 		},
 		messages: {},
