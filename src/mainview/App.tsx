@@ -1,4 +1,12 @@
 import { useState } from "react";
+import { Electroview } from "electrobun/view";
+import type { MixxxRPC } from "../shared/types";
+
+const rpc = Electroview.defineRPC<MixxxRPC>({
+  maxRequestTime: Infinity,
+  handlers: { requests: {}, messages: {} },
+});
+const electroview = new Electroview({ rpc });
 import { 
   Play, 
   SkipBack, 
@@ -33,6 +41,13 @@ const TRACKS = [
 function App() {
   const [activeTab, setActiveTab] = useState("collection");
 
+  async function handleAddTracks() {
+    const content = await electroview.rpc!.request.openXmlFile();
+    if (content !== null) {
+      console.log(content);
+    }
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground font-sans selection:bg-primary/30">
       
@@ -63,7 +78,7 @@ function App() {
         </div>
 
         <div className="px-6 py-4">
-          <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-bold shadow-lg shadow-primary/20">
+          <Button onClick={handleAddTracks} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-bold shadow-lg shadow-primary/20">
             ADD TRACKS
           </Button>
         </div>

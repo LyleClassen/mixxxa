@@ -1,9 +1,9 @@
-import { BrowserWindow, Updater } from "electrobun/bun";
+import { BrowserWindow, BrowserView, Utils, Updater } from "electrobun/bun";
+import type { MixxxRPC } from "../shared/types";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
 
-// Check if Vite dev server is running for HMR
 async function getMainViewUrl(): Promise<string> {
 	const channel = await Updater.localInfo.channel();
 	if (channel === "dev") {
@@ -20,12 +20,32 @@ async function getMainViewUrl(): Promise<string> {
 	return "views://mainview/index.html";
 }
 
-// Create the main application window
+const rpc = BrowserView.defineRPC<MixxxRPC>({
+	maxRequestTime: Infinity,
+	handlers: {
+		requests: {
+			openXmlFile: async () => {
+				const files = await Utils.openFileDialog({
+					allowedFileTypes: "xml",
+					canChooseFiles: true,
+					canChooseDirectory: false,
+					allowsMultipleSelection: false,
+				});
+				if (!files || files.length === 0 || files[0] === "") return null;
+				const content = await Bun.file(files[0]).text();
+				return content;
+			},
+		},
+		messages: {},
+	},
+});
+
 const url = await getMainViewUrl();
 
-const mainWindow = new BrowserWindow({
+new BrowserWindow({
 	title: "Mixxxa",
 	url,
+	rpc,
 	frame: {
 		width: 1920,
 		height: 1080,
