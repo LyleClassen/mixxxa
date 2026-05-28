@@ -24,11 +24,11 @@ async function getMainViewUrl(): Promise<string> {
 const url = await getMainViewUrl();
 
 const mainWindow = new BrowserWindow({
-	title: "React + Tailwind + Vite",
+	title: "Mixxxa",
 	url,
 	frame: {
-		width: 900,
-		height: 700,
+		width: 1920,
+		height: 1080,
 		x: 200,
 		y: 200,
 	},

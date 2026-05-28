@@ -23,6 +23,15 @@
 	--color-border: var(--border);
 	--color-input: var(--input);
 	--color-ring: var(--ring);
+
+	--color-key-green: var(--key-green);
+	--color-key-blue: var(--key-blue);
+	--color-key-purple: var(--key-purple);
+	--color-key-pink: var(--key-pink);
+	--color-key-cyan: var(--key-cyan);
+	--color-key-orange: var(--key-orange);
+	--color-key-lightgreen: var(--key-lightgreen);
+
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
@@ -31,47 +40,39 @@
 
 :root {
 	--radius: 0.625rem;
-	--background: oklch(1 0 0);
-	--foreground: oklch(0.145 0 0);
-	--card: oklch(1 0 0);
-	--card-foreground: oklch(0.145 0 0);
-	--popover: oklch(1 0 0);
-	--popover-foreground: oklch(0.145 0 0);
-	--primary: oklch(0.205 0 0);
-	--primary-foreground: oklch(0.985 0 0);
-	--secondary: oklch(0.97 0 0);
-	--secondary-foreground: oklch(0.205 0 0);
-	--muted: oklch(0.97 0 0);
-	--muted-foreground: oklch(0.556 0 0);
-	--accent: oklch(0.97 0 0);
-	--accent-foreground: oklch(0.205 0 0);
-	--destructive: oklch(0.577 0.245 27.325);
-	--destructive-foreground: oklch(0.985 0 0);
-	--border: oklch(0.922 0 0);
-	--input: oklch(0.922 0 0);
-	--ring: oklch(0.708 0 0);
-}
+	/* Deep dark gray/purple for background */
+	--background: #111115;
+	--foreground: #f3f4f6;
+	--card: #18181f;
+	--card-foreground: #f3f4f6;
+	--popover: #18181f;
+	--popover-foreground: #f3f4f6;
+	/* Lime Green Primary */
+	--primary: #a3e635;
+	--primary-foreground: #000000;
+	/* Subtle darker gray for secondary */
+	--secondary: #27272a;
+	--secondary-foreground: #f3f4f6;
+	/* Muted for subtle text/borders */
+	--muted: #27272a;
+	--muted-foreground: #a1a1aa;
+	/* Purple Accent */
+	--accent: #a855f7;
+	--accent-foreground: #ffffff;
+	--destructive: #ef4444;
+	--destructive-foreground: #ffffff;
+	--border: #27272a;
+	--input: #27272a;
+	--ring: #a3e635;
 
-.dark {
-	--background: oklch(0.145 0 0);
-	--foreground: oklch(0.985 0 0);
-	--card: oklch(0.205 0 0);
-	--card-foreground: oklch(0.985 0 0);
-	--popover: oklch(0.205 0 0);
-	--popover-foreground: oklch(0.985 0 0);
-	--primary: oklch(0.985 0 0);
-	--primary-foreground: oklch(0.205 0 0);
-	--secondary: oklch(0.269 0 0);
-	--secondary-foreground: oklch(0.985 0 0);
-	--muted: oklch(0.269 0 0);
-	--muted-foreground: oklch(0.708 0 0);
-	--accent: oklch(0.269 0 0);
-	--accent-foreground: oklch(0.985 0 0);
-	--destructive: oklch(0.704 0.191 22.216);
-	--destructive-foreground: oklch(0.985 0 0);
-	--border: oklch(1 0 0 / 10%);
-	--input: oklch(1 0 0 / 15%);
-	--ring: oklch(0.556 0 0);
+	/* Key Badge Colors (like Camelot Wheel) */
+	--key-green: #4ade80;
+	--key-blue: #60a5fa;
+	--key-purple: #c084fc;
+	--key-pink: #f472b6;
+	--key-cyan: #22d3ee;
+	--key-orange: #fbbf24;
+	--key-lightgreen: #bef264;
 }
 
 @layer base {
@@ -80,5 +81,6 @@
 	}
 	body {
 		@apply bg-background text-foreground;
+		font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 	}
 }
