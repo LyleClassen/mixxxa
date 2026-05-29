@@ -15,11 +15,10 @@ import {
   Plus,
   Disc3,
   Piano,
-  Settings,
-  Library,
+
   Music2,
   CheckCircle2,
-  MoreHorizontal
+
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 

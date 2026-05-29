@@ -37,7 +37,10 @@ const rpc = BrowserView.defineRPC<MixxxRPC>({
 				return content;
 			},
 			getContents: async () => {
+				console.log('getContents');
 				const db = MasterDb.open();
+				console.log('db', db.getPlaylistTree());
+
 				return db.getContents();
 			},
 		},
