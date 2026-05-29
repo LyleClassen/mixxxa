@@ -1,6 +1,8 @@
 import { BrowserWindow, BrowserView, Utils, Updater } from "electrobun/bun";
 import type { MixxxRPC } from "../shared/types";
-import { MasterDb } from "rbox-js";
+import { rpcHandlers } from "./rpc/index";
+import { initRekordboxHandlers } from "./rpc/rekordbox";
+import { closeDb } from "./db/localDb";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -21,31 +23,11 @@ async function getMainViewUrl(): Promise<string> {
 	return "views://mainview/index.html";
 }
 
+initRekordboxHandlers(Utils.paths.userData);
+
 const rpc = BrowserView.defineRPC<MixxxRPC>({
 	maxRequestTime: Infinity,
-	handlers: {
-		requests: {
-			openXmlFile: async () => {
-				const files = await Utils.openFileDialog({
-					allowedFileTypes: "xml",
-					canChooseFiles: true,
-					canChooseDirectory: false,
-					allowsMultipleSelection: false,
-				});
-				if (!files || files.length === 0 || files[0] === "") return null;
-				const content = await Bun.file(files[0]).text();
-				return content;
-			},
-			getContents: async () => {
-				console.log('getContents');
-				const db = MasterDb.open();
-				console.log('db', db.getPlaylistTree());
-
-				return db.getContents();
-			},
-		},
-		messages: {},
-	},
+	handlers: rpcHandlers,
 });
 
 const url = await getMainViewUrl();
@@ -61,5 +43,7 @@ new BrowserWindow({
 		y: 200,
 	},
 });
+
+process.on("exit", () => closeDb());
 
 console.log("React Tailwind Vite app started!");
