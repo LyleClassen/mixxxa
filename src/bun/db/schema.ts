@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS content (
   key_id TEXT,
   bpm INTEGER,
   length INTEGER,
-  rating INTEGER
+  rating INTEGER,
+  file_path TEXT
 );
 
 CREATE TABLE IF NOT EXISTS artist (

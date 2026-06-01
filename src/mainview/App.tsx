@@ -1,15 +1,9 @@
 import { useState, useEffect } from "react";
-import { Electroview } from "electrobun/view";
-import type { MixxxRPC, PlaylistNode, Track, SyncErrorKind } from "../shared/types";
-
-const rpc = Electroview.defineRPC<MixxxRPC>({
-  maxRequestTime: Infinity,
-  handlers: { requests: {}, messages: {} },
-});
-const electroview = new Electroview({ rpc });
+import type { PlaylistNode, Track, SyncErrorKind } from "../shared/types";
+import { electroview } from "./rpc";
+import { WaveformPlayer } from "./WaveformPlayer";
 
 import {
-  Play,
   SkipBack,
   SkipForward,
   Search,
@@ -85,6 +79,7 @@ function App() {
   const [playlistTree, setPlaylistTree] = useState<PlaylistNode[]>([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [loadedTrack, setLoadedTrack] = useState<Track | null>(null);
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [syncError, setSyncError] = useState<SyncErrorKind | null>(null);
 
@@ -234,67 +229,38 @@ function App() {
         </header>
 
         {/* Player Section */}
-        <section className="p-6 border-b border-border bg-card/50 flex flex-col gap-6 shrink-0">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <button className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
-                <SkipBack size={20} />
-              </button>
-              <button className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:scale-105 transition-transform shadow-lg shadow-primary/20">
-                <Play size={24} className="ml-1" />
-              </button>
-              <button className="w-8 h-8 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
-                <SkipForward size={20} />
-              </button>
-            </div>
-
-            <div className="flex-1 h-16 bg-muted/30 rounded-lg relative overflow-hidden flex items-center px-4 border border-border/50">
-              <div className="absolute inset-0 flex items-center gap-[2px] opacity-60 px-2">
-                {Array.from({ length: 100 }).map((_, i) => {
-                  const height = 10 + Math.random() * 80;
-                  const isPlayed = i < 30;
-                  return (
-                    <div
-                      key={i}
-                      className={`flex-1 rounded-sm ${isPlayed ? 'bg-primary' : 'bg-muted-foreground/40'}`}
-                      style={{ height: `${height}%` }}
-                    />
-                  );
-                })}
-              </div>
-              <div className="absolute top-0 left-[15%] h-full w-px bg-accent z-10 shadow-[0_0_10px_var(--accent)]">
-                <div className="bg-accent text-accent-foreground text-[10px] font-bold px-1 py-0.5 rounded-b-sm absolute top-0 -translate-x-1/2 whitespace-nowrap">
-                  CUE 1
-                </div>
-              </div>
-              <div className="absolute top-0 left-[45%] h-full w-px bg-accent z-10 shadow-[0_0_10px_var(--accent)]">
-                <div className="bg-accent text-accent-foreground text-[10px] font-bold px-1 py-0.5 rounded-b-sm absolute top-0 -translate-x-1/2 whitespace-nowrap">
-                  CUE 2
-                </div>
-              </div>
-              <div className="absolute right-4 bottom-2 text-xs font-mono text-muted-foreground z-10 bg-background/80 px-1.5 py-0.5 rounded">
-                00:00 / 04:00
-              </div>
-            </div>
-          </div>
+        <section className="p-6 border-b border-border bg-card/50 flex flex-col gap-4 shrink-0">
+          <WaveformPlayer track={loadedTrack} />
 
           <div className="flex items-end justify-between">
             <div>
-              <h2 className="text-2xl font-light tracking-tight mb-2">Daft Punk - Digital Love</h2>
+              <h2 className="text-2xl font-light tracking-tight mb-2">
+                {loadedTrack
+                  ? `${loadedTrack.artist ? loadedTrack.artist + " – " : ""}${loadedTrack.title || "Unknown"}`
+                  : "No track loaded"}
+              </h2>
               <div className="flex items-center gap-6 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Key</span>
-                  <span className="bg-key-cyan text-black px-2 py-0.5 rounded text-xs font-bold">11B</span>
+                  {loadedTrack?.key ? (
+                    <span className="bg-key-cyan text-black px-2 py-0.5 rounded text-xs font-bold">{loadedTrack.key}</span>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">—</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">BPM</span>
-                  <span className="bg-muted px-2 py-0.5 rounded text-xs font-medium border border-border">125</span>
+                  {loadedTrack?.bpm != null ? (
+                    <span className="bg-muted px-2 py-0.5 rounded text-xs font-medium border border-border">{loadedTrack.bpm}</span>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">—</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 ml-4 border-l border-border pl-6">
                   <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Cue Points</span>
                   <div className="flex items-center gap-1">
                     <button className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors"><SkipBack size={14} /></button>
-                    <button className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors"><Play size={14} /></button>
+                    <button className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors"><SkipForward size={14} /></button>
                   </div>
                   <Button variant="outline" size="sm" className="h-7 text-xs border-dashed text-muted-foreground hover:text-foreground">ADD CUE</Button>
                 </div>
@@ -349,7 +315,7 @@ function App() {
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {tracks.map((track) => (
-                    <tr key={track.id} className="hover:bg-muted/30 transition-colors group">
+                    <tr key={track.id} onDoubleClick={() => setLoadedTrack(track)} className="hover:bg-muted/30 transition-colors group cursor-pointer">
                       <td className="px-6 py-2.5">
                         <div className="w-12 h-8 rounded-sm bg-muted shadow-sm border border-border/50 flex items-center justify-center">
                           <Music2 size={14} className="text-muted-foreground/50" />

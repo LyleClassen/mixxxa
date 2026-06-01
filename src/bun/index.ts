@@ -3,6 +3,7 @@ import type { MixxxRPC } from "../shared/types";
 import { rpcHandlers } from "./rpc/index";
 import { initRekordboxHandlers } from "./rpc/rekordbox";
 import { closeDb } from "./db/localDb";
+import { startAudioServer, stopAudioServer } from "./audioServer";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -24,6 +25,7 @@ async function getMainViewUrl(): Promise<string> {
 }
 
 initRekordboxHandlers(Utils.paths.userData);
+startAudioServer(Utils.paths.userData);
 
 const rpc = BrowserView.defineRPC<MixxxRPC>({
 	maxRequestTime: Infinity,
@@ -44,6 +46,9 @@ new BrowserWindow({
 	},
 });
 
-process.on("exit", () => closeDb());
+process.on("exit", () => {
+  closeDb();
+  stopAudioServer();
+});
 
 console.log("React Tailwind Vite app started!");

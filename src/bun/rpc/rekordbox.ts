@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { PlaylistNode, Track, SyncErrorKind } from "../../shared/types";
 import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks } from "../db/localDb";
+import { getAudioServerPort } from "../audioServer";
 
 let dataDir: string;
 
@@ -102,10 +103,10 @@ export const rekordboxHandlers = {
         title: c.title ?? null,
         artist_id: c.artistId ?? null,
         key_id: c.keyId ?? null,
-        // DjmdContent.bpm is labeled as integer BPM (not ×100); verify against real data (task 4.5)
         bpm: c.bpm ?? null,
         length: c.length ?? null,
         rating: c.rating ?? null,
+        file_path: c.folderPath ?? null,
       })),
       artists: artists.map((a) => ({ id: a.id, name: a.name })),
       keys: keys.map((k) => ({ id: k.id, name: k.name })),
@@ -122,5 +123,14 @@ export const rekordboxHandlers = {
   getPlaylistTracks: async ({ playlistId }: { playlistId: string }): Promise<Track[]> => {
     const db = getDb(dataDir);
     return readPlaylistTracks(db, playlistId);
+  },
+
+  getTrackAudioUrl: async ({ trackId }: { trackId: string }): Promise<string | null> => {
+    const db = getDb(dataDir);
+    const row = db.query<{ file_path: string | null }, [string]>(
+      "SELECT file_path FROM content WHERE id = ?"
+    ).get(trackId);
+    if (!row || !row.file_path || !existsSync(row.file_path)) return null;
+    return `http://127.0.0.1:${getAudioServerPort()}/audio/${trackId}`;
   },
 };

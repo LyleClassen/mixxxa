@@ -15,6 +15,7 @@ export interface Track {
   key: string;
   length: number | null;
   rating: number | null;
+  filePath: string | null;
 }
 
 export type SyncErrorKind = "not-found" | "unreadable";
@@ -26,6 +27,7 @@ export type MixxxRPC = {
       syncFromRekordbox: { params: undefined; response: PlaylistNode[] };
       getPlaylistTree: { params: undefined; response: PlaylistNode[] };
       getPlaylistTracks: { params: { playlistId: string }; response: Track[] };
+      getTrackAudioUrl: { params: { trackId: string }; response: string | null };
     };
     messages: {};
   }>;

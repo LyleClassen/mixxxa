@@ -14,6 +14,11 @@ export function getDb(dataDir: string): Database {
   db = new Database(dbPath);
   db.exec("PRAGMA journal_mode=WAL;");
   db.exec(SCHEMA_SQL);
+  // Idempotent migration: add file_path to existing DBs that predate this column
+  const cols = db.query<{ name: string }, []>("PRAGMA table_info(content)").all();
+  if (!cols.some((c) => c.name === "file_path")) {
+    db.exec("ALTER TABLE content ADD COLUMN file_path TEXT");
+  }
   return db;
 }
 
@@ -58,6 +63,7 @@ export function readPlaylistTracks(database: Database, playlistId: string): Trac
     rating: number | null;
     artist_name: string | null;
     key_name: string | null;
+    file_path: string | null;
   };
   const rows = database.query<Row, [string]>(`
     SELECT
@@ -66,6 +72,7 @@ export function readPlaylistTracks(database: Database, playlistId: string): Trac
       c.bpm,
       c.length,
       c.rating,
+      c.file_path,
       a.name AS artist_name,
       k.name AS key_name
     FROM playlist_song ps
@@ -80,10 +87,11 @@ export function readPlaylistTracks(database: Database, playlistId: string): Trac
     id: row.content_id,
     title: row.title ?? "",
     artist: row.artist_name ?? "",
-    bpm: row.bpm != null ? row.bpm : null,
+    bpm: row.bpm != null ? row.bpm / 100 : null,
     key: row.key_name ?? "",
     length: row.length != null ? Math.round(row.length / 1000) : null,
     rating: row.rating ?? null,
+    filePath: row.file_path ?? null,
   }));
 }
 
@@ -92,7 +100,7 @@ export function readPlaylistTracks(database: Database, playlistId: string): Trac
 interface LibraryData {
   playlists: Array<{ id: string; name: string; attribute: number; parent_id: string | null; seq: number }>;
   playlistSongs: Array<{ id: string; playlist_id: string; content_id: string; seq: number }>;
-  contents: Array<{ id: string; title: string | null; artist_id: string | null; key_id: string | null; bpm: number | null; length: number | null; rating: number | null }>;
+  contents: Array<{ id: string; title: string | null; artist_id: string | null; key_id: string | null; bpm: number | null; length: number | null; rating: number | null; file_path: string | null }>;
   artists: Array<{ id: string; name: string }>;
   keys: Array<{ id: string; name: string }>;
 }
@@ -120,10 +128,10 @@ export function replaceLibrary(database: Database, data: LibraryData): void {
     }
 
     const insertContent = database.prepare(
-      "INSERT INTO content (id, title, artist_id, key_id, bpm, length, rating) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO content (id, title, artist_id, key_id, bpm, length, rating, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     );
     for (const c of data.contents) {
-      insertContent.run(c.id, c.title, c.artist_id, c.key_id, c.bpm, c.length, c.rating);
+      insertContent.run(c.id, c.title, c.artist_id, c.key_id, c.bpm, c.length, c.rating, c.file_path);
     }
 
     const insertArtist = database.prepare("INSERT INTO artist (id, name) VALUES (?, ?)");
