@@ -1,11 +1,15 @@
 # Spec: rekordbox-sync
 
 ## Requirement: Pull Rekordbox Library Into Local Mirror
-The system SHALL read the user's Rekordbox library via `rbox-js` and import it (playlists, playlist songs, tracks, artists, keys) into the local mirror database. This is a pull-only operation; the system SHALL NOT write changes back to Rekordbox in this capability.
+The system SHALL read the user's Rekordbox library via `rbox-js` and import it (playlists, playlist songs, tracks, artists, keys) into the local mirror database, including each track's absolute audio file path so loaded tracks can be located on disk. This is a pull-only operation; the system SHALL NOT write changes back to Rekordbox in this capability.
 
 ### Scenario: Library available
 - **WHEN** a sync is triggered and the Rekordbox `master.db` can be opened
 - **THEN** the system reads the playlists and tracks from Rekordbox and writes them into the local mirror, preserving playlist parent/child relationships and folder vs. playlist distinctions
+
+### Scenario: Track file path captured
+- **WHEN** a sync imports a track that has a file location in Rekordbox (`DjmdContent.folderPath`/file name)
+- **THEN** the system stores that track's absolute audio file path in the local mirror
 
 ### Scenario: Sync is idempotent
 - **WHEN** a sync runs more than once
