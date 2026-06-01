@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, Volume2 } from "lucide-react";
 import type { Track } from "../shared/types";
 import { electroview } from "./rpc";
 
@@ -139,8 +139,7 @@ export function WaveformPlayer({ track }: { track: Track | null }) {
         </div>
 
         {/* Volume */}
-        <div className="flex flex-col items-center gap-1 shrink-0">
-          <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Vol</span>
+        <div className="flex flex-col items-center gap-2 shrink-0">
           <input
             type="range"
             min={0}
@@ -148,8 +147,10 @@ export function WaveformPlayer({ track }: { track: Track | null }) {
             step={0.01}
             value={volume}
             onChange={(e) => setVolume(parseFloat(e.target.value))}
-            className="w-20 accent-primary cursor-pointer"
+            className="accent-primary cursor-pointer"
+            style={{ writingMode: "vertical-lr", direction: "rtl", height: "72px" }}
           />
+          <Volume2 size={16} className="text-muted-foreground" />
         </div>
       </div>
     </div>
