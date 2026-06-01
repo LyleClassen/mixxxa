@@ -11,6 +11,7 @@ export interface Track {
   id: string;
   title: string;
   artist: string;
+  album: string | null;
   bpm: number | null;
   key: string;
   length: number | null;
@@ -27,6 +28,7 @@ export type MixxxRPC = {
       syncFromRekordbox: { params: undefined; response: PlaylistNode[] };
       getPlaylistTree: { params: undefined; response: PlaylistNode[] };
       getPlaylistTracks: { params: { playlistId: string }; response: Track[] };
+      getAllTracks: { params: undefined; response: Track[] };
       getTrackAudioUrl: { params: { trackId: string }; response: string | null };
     };
     messages: {};

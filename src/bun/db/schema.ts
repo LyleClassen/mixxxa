@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS content (
   bpm INTEGER,
   length INTEGER,
   rating INTEGER,
-  file_path TEXT
+  file_path TEXT,
+  album TEXT
 );
 
 CREATE TABLE IF NOT EXISTS artist (

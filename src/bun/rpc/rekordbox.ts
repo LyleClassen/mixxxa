@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { PlaylistNode, Track, SyncErrorKind } from "../../shared/types";
-import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks } from "../db/localDb";
+import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks, readAllTracks } from "../db/localDb";
 import { getAudioServerPort } from "../audioServer";
 
 let dataDir: string;
@@ -51,12 +51,14 @@ export const rekordboxHandlers = {
     let contents: ReturnType<MasterDb["getContents"]>;
     let artists: ReturnType<MasterDb["getArtists"]>;
     let keys: ReturnType<MasterDb["getKeys"]>;
+    let albums: ReturnType<MasterDb["getAlbums"]>;
 
     try {
       playlists = rbDb.getPlaylists();
       contents = rbDb.getContents();
       artists = rbDb.getArtists();
       keys = rbDb.getKeys();
+      albums = rbDb.getAlbums();
     } catch {
       const locked = isRekordboxRunning();
       throw makeSyncError(
@@ -89,6 +91,11 @@ export const rekordboxHandlers = {
 
     const db = getDb(dataDir);
 
+    const albumMap = new Map<string, string>();
+    for (const album of albums) {
+      albumMap.set(album.id, album.name);
+    }
+
     replaceLibrary(db, {
       playlists: playlists.map((p) => ({
         id: p.id,
@@ -107,6 +114,7 @@ export const rekordboxHandlers = {
         length: c.length ?? null,
         rating: c.rating ?? null,
         file_path: c.folderPath ?? null,
+        album: c.albumId ? (albumMap.get(c.albumId) ?? null) : null,
       })),
       artists: artists.map((a) => ({ id: a.id, name: a.name })),
       keys: keys.map((k) => ({ id: k.id, name: k.name })),
@@ -123,6 +131,11 @@ export const rekordboxHandlers = {
   getPlaylistTracks: async ({ playlistId }: { playlistId: string }): Promise<Track[]> => {
     const db = getDb(dataDir);
     return readPlaylistTracks(db, playlistId);
+  },
+
+  getAllTracks: async (): Promise<Track[]> => {
+    const db = getDb(dataDir);
+    return readAllTracks(db);
   },
 
   getTrackAudioUrl: async ({ trackId }: { trackId: string }): Promise<string | null> => {

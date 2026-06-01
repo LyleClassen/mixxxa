@@ -1,7 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { PlaylistNode, Track, SyncErrorKind } from "../shared/types";
 import { electroview } from "./rpc";
 import { WaveformPlayer } from "./WaveformPlayer";
+import { TrackTable } from "./TrackTable";
+import { useDebounce } from "./hooks/useDebounce";
 
 import {
   SkipBack,
@@ -9,14 +11,17 @@ import {
   Search,
   Disc3,
   Piano,
-  Music2,
   RefreshCw,
   ChevronRight,
   ChevronDown,
   Folder,
   ListMusic,
+  Library,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+const COLLECTION_ID = "__collection__";
+const SELECTED_PLAYLIST_KEY = "mixxxa.selectedPlaylistId";
 
 type SyncState = "idle" | "loading" | "ready" | "error";
 
@@ -77,11 +82,27 @@ function PlaylistTreeNode({
 function App() {
   const [activeTab, setActiveTab] = useState("collection");
   const [playlistTree, setPlaylistTree] = useState<PlaylistNode[]>([]);
-  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>(() => {
+    return localStorage.getItem(SELECTED_PLAYLIST_KEY) ?? COLLECTION_ID;
+  });
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loadedTrack, setLoadedTrack] = useState<Track | null>(null);
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [syncError, setSyncError] = useState<SyncErrorKind | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const debouncedSearch = useDebounce(searchQuery, 200);
+
+  const filteredTracks = useMemo(() => {
+    if (!debouncedSearch.trim()) return tracks;
+    const q = debouncedSearch.toLowerCase();
+    return tracks.filter(
+      (t) =>
+        t.title.toLowerCase().includes(q) ||
+        t.artist.toLowerCase().includes(q) ||
+        (t.album ?? "").toLowerCase().includes(q)
+    );
+  }, [tracks, debouncedSearch]);
 
   useEffect(() => {
     electroview.rpc!.request.getPlaylistTree().then((tree) => {
@@ -92,13 +113,35 @@ function App() {
     }).catch(() => {});
   }, []);
 
+  // Load tracks when selection changes
+  useEffect(() => {
+    let cancelled = false;
+    setTracks([]);
+
+    if (selectedPlaylistId === COLLECTION_ID) {
+      electroview.rpc!.request.getAllTracks().then((result) => {
+        if (!cancelled) setTracks(result);
+      }).catch(() => {
+        if (!cancelled) setTracks([]);
+      });
+    } else {
+      electroview.rpc!.request.getPlaylistTracks({ playlistId: selectedPlaylistId }).then((result) => {
+        if (!cancelled) setTracks(result);
+      }).catch(() => {
+        if (!cancelled) setTracks([]);
+      });
+    }
+
+    return () => { cancelled = true; };
+  }, [selectedPlaylistId]);
+
   async function handleSync() {
     setSyncState("loading");
     setSyncError(null);
     try {
       const tree = await electroview.rpc!.request.syncFromRekordbox();
       setPlaylistTree(tree);
-      setSelectedPlaylistId(null);
+      setSelectedPlaylistId(COLLECTION_ID);
       setTracks([]);
       setSyncState("ready");
     } catch (err: unknown) {
@@ -108,15 +151,10 @@ function App() {
     }
   }
 
-  async function handleSelectPlaylist(playlistId: string) {
+  function handleSelectPlaylist(playlistId: string) {
     setSelectedPlaylistId(playlistId);
-    setTracks([]);
-    try {
-      const result = await electroview.rpc!.request.getPlaylistTracks({ playlistId });
-      setTracks(result);
-    } catch {
-      setTracks([]);
-    }
+    setSearchQuery("");
+    localStorage.setItem(SELECTED_PLAYLIST_KEY, playlistId);
   }
 
   function syncErrorMessage(): string {
@@ -158,6 +196,19 @@ function App() {
 
         {/* Playlist tree */}
         <nav className="flex-1 px-4 py-2 space-y-0.5 overflow-y-auto">
+          {/* Collection node — always visible, pinned first */}
+          <button
+            onClick={() => handleSelectPlaylist(COLLECTION_ID)}
+            className={`w-full flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors ${
+              selectedPlaylistId === COLLECTION_ID
+                ? "bg-muted/50 text-foreground border-l-2 border-primary"
+                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            }`}
+          >
+            <Library size={14} className="shrink-0" />
+            <span className="truncate font-medium">Collection</span>
+          </button>
+
           {syncState === "idle" && playlistTree.length === 0 && (
             <p className="px-3 py-2 text-xs text-muted-foreground">
               Click Sync to load your Rekordbox library.
@@ -280,73 +331,42 @@ function App() {
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <input
                 type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search tracks"
                 className="w-full bg-muted/50 border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all placeholder:text-muted-foreground/70"
               />
             </div>
             <div className="text-sm font-medium text-muted-foreground">
-              {tracks.length} TRACKS
+              {filteredTracks.length} TRACKS
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto">
-            {selectedPlaylistId && tracks.length === 0 ? (
+          <div className="flex-1 min-h-0">
+            {filteredTracks.length === 0 && debouncedSearch.trim() ? (
               <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
-                No tracks in this playlist.
+                No tracks found.
               </div>
-            ) : !selectedPlaylistId && tracks.length === 0 ? (
+            ) : filteredTracks.length === 0 && selectedPlaylistId !== COLLECTION_ID ? (
+              <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
+                {tracks.length === 0
+                  ? syncState === "ready" || playlistTree.length > 0
+                    ? "No tracks in this playlist."
+                    : "Sync your Rekordbox library to get started."
+                  : "No tracks found."}
+              </div>
+            ) : filteredTracks.length === 0 ? (
               <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
                 {syncState === "ready" || playlistTree.length > 0
-                  ? "Select a playlist to view tracks."
+                  ? "No tracks in your library yet. Sync to import."
                   : "Sync your Rekordbox library to get started."}
               </div>
             ) : (
-              <table className="w-full text-left text-sm whitespace-nowrap">
-                <thead className="sticky top-0 bg-background z-10 shadow-sm border-b border-border">
-                  <tr className="text-muted-foreground text-xs font-bold uppercase tracking-wider">
-                    <th className="px-6 py-4 font-medium">Cover Art</th>
-                    <th className="px-6 py-4 font-medium">Artist</th>
-                    <th className="px-6 py-4 font-medium w-full">Title</th>
-                    <th className="px-6 py-4 font-medium text-right">BPM</th>
-                    <th className="px-6 py-4 font-medium">Key</th>
-                    <th className="px-6 py-4 font-medium text-right">Length</th>
-                    <th className="px-6 py-4 font-medium text-center">Rating</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {tracks.map((track) => (
-                    <tr key={track.id} onDoubleClick={() => setLoadedTrack(track)} className="hover:bg-muted/30 transition-colors group cursor-pointer">
-                      <td className="px-6 py-2.5">
-                        <div className="w-12 h-8 rounded-sm bg-muted shadow-sm border border-border/50 flex items-center justify-center">
-                          <Music2 size={14} className="text-muted-foreground/50" />
-                        </div>
-                      </td>
-                      <td className="px-6 py-2.5 font-medium">{track.artist || "—"}</td>
-                      <td className="px-6 py-2.5 text-muted-foreground group-hover:text-foreground transition-colors">
-                        {track.title || "—"}
-                      </td>
-                      <td className="px-6 py-2.5 text-right font-mono text-muted-foreground">
-                        {track.bpm != null ? track.bpm : "—"}
-                      </td>
-                      <td className="px-6 py-2.5">
-                        {track.key ? (
-                          <span className="bg-muted px-2 py-0.5 rounded text-xs font-bold inline-block min-w-[36px] text-center border border-border">
-                            {track.key}
-                          </span>
-                        ) : "—"}
-                      </td>
-                      <td className="px-6 py-2.5 text-right font-mono text-muted-foreground">
-                        {track.length != null
-                          ? `${Math.floor(track.length / 60)}:${String(track.length % 60).padStart(2, "0")}`
-                          : "—"}
-                      </td>
-                      <td className="px-6 py-2.5 text-center text-muted-foreground font-mono">
-                        {track.rating != null ? track.rating : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <TrackTable
+                tracks={filteredTracks}
+                onTrackDoubleClick={setLoadedTrack}
+                storageKey="mixxxa.trackTableColumns"
+              />
             )}
           </div>
         </section>

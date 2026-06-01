@@ -19,6 +19,9 @@ export function getDb(dataDir: string): Database {
   if (!cols.some((c) => c.name === "file_path")) {
     db.exec("ALTER TABLE content ADD COLUMN file_path TEXT");
   }
+  if (!cols.some((c) => c.name === "album")) {
+    db.exec("ALTER TABLE content ADD COLUMN album TEXT");
+  }
   return db;
 }
 
@@ -64,6 +67,7 @@ export function readPlaylistTracks(database: Database, playlistId: string): Trac
     artist_name: string | null;
     key_name: string | null;
     file_path: string | null;
+    album: string | null;
   };
   const rows = database.query<Row, [string]>(`
     SELECT
@@ -73,6 +77,7 @@ export function readPlaylistTracks(database: Database, playlistId: string): Trac
       c.length,
       c.rating,
       c.file_path,
+      c.album,
       a.name AS artist_name,
       k.name AS key_name
     FROM playlist_song ps
@@ -87,6 +92,49 @@ export function readPlaylistTracks(database: Database, playlistId: string): Trac
     id: row.content_id,
     title: row.title ?? "",
     artist: row.artist_name ?? "",
+    album: row.album ?? null,
+    bpm: row.bpm != null ? row.bpm / 100 : null,
+    key: row.key_name ?? "",
+    length: row.length != null ? Math.round(row.length / 1000) : null,
+    rating: row.rating ?? null,
+    filePath: row.file_path ?? null,
+  }));
+}
+
+export function readAllTracks(database: Database): Track[] {
+  type Row = {
+    content_id: string;
+    title: string | null;
+    bpm: number | null;
+    length: number | null;
+    rating: number | null;
+    artist_name: string | null;
+    key_name: string | null;
+    file_path: string | null;
+    album: string | null;
+  };
+  const rows = database.query<Row, []>(`
+    SELECT
+      c.id AS content_id,
+      c.title,
+      c.bpm,
+      c.length,
+      c.rating,
+      c.file_path,
+      c.album,
+      a.name AS artist_name,
+      k.name AS key_name
+    FROM content c
+    LEFT JOIN artist a ON a.id = c.artist_id
+    LEFT JOIN key k ON k.id = c.key_id
+    ORDER BY a.name ASC, c.title ASC
+  `).all();
+
+  return rows.map((row) => ({
+    id: row.content_id,
+    title: row.title ?? "",
+    artist: row.artist_name ?? "",
+    album: row.album ?? null,
     bpm: row.bpm != null ? row.bpm / 100 : null,
     key: row.key_name ?? "",
     length: row.length != null ? Math.round(row.length / 1000) : null,
@@ -100,7 +148,7 @@ export function readPlaylistTracks(database: Database, playlistId: string): Trac
 interface LibraryData {
   playlists: Array<{ id: string; name: string; attribute: number; parent_id: string | null; seq: number }>;
   playlistSongs: Array<{ id: string; playlist_id: string; content_id: string; seq: number }>;
-  contents: Array<{ id: string; title: string | null; artist_id: string | null; key_id: string | null; bpm: number | null; length: number | null; rating: number | null; file_path: string | null }>;
+  contents: Array<{ id: string; title: string | null; artist_id: string | null; key_id: string | null; bpm: number | null; length: number | null; rating: number | null; file_path: string | null; album: string | null }>;
   artists: Array<{ id: string; name: string }>;
   keys: Array<{ id: string; name: string }>;
 }
@@ -128,10 +176,10 @@ export function replaceLibrary(database: Database, data: LibraryData): void {
     }
 
     const insertContent = database.prepare(
-      "INSERT INTO content (id, title, artist_id, key_id, bpm, length, rating, file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO content (id, title, artist_id, key_id, bpm, length, rating, file_path, album) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     for (const c of data.contents) {
-      insertContent.run(c.id, c.title, c.artist_id, c.key_id, c.bpm, c.length, c.rating, c.file_path);
+      insertContent.run(c.id, c.title, c.artist_id, c.key_id, c.bpm, c.length, c.rating, c.file_path, c.album);
     }
 
     const insertArtist = database.prepare("INSERT INTO artist (id, name) VALUES (?, ?)");
