@@ -331,7 +331,7 @@ export function TrackTable({
       }
       case "length": {
         if (track.length == null) return <span>—</span>;
-        const totalSec = Math.round(track.length / 1000);
+        const totalSec = track.length;
         return (
           <span className="font-mono text-muted-foreground">
             {Math.floor(totalSec / 60)}:{String(totalSec % 60).padStart(2, "0")}
@@ -341,7 +341,7 @@ export function TrackTable({
       case "bitrate":
         return (
           <span className="font-mono text-muted-foreground">
-            {track.bitrate != null ? `${Math.round(track.bitrate / 1000)}` : "—"}
+            {track.bitrate != null ? `${track.bitrate}` : "—"}
           </span>
         );
       case "rating":
