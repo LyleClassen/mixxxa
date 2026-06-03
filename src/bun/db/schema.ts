@@ -23,7 +23,16 @@ CREATE TABLE IF NOT EXISTS content (
   length INTEGER,
   rating INTEGER,
   file_path TEXT,
-  album TEXT
+  album TEXT,
+  bit_rate INTEGER,
+  analyzed_bpm REAL,
+  analyzed_key TEXT,
+  analysis_status TEXT,
+  analyzed_at INTEGER,
+  time_decode_ms INTEGER,
+  time_key_ms INTEGER,
+  time_bpm_ms INTEGER,
+  time_total_ms INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS artist (
@@ -34,5 +43,38 @@ CREATE TABLE IF NOT EXISTS artist (
 CREATE TABLE IF NOT EXISTS key (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS analysis_queue (
+  id TEXT PRIMARY KEY,
+  track_id TEXT NOT NULL,
+  aspects TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  phase TEXT,
+  progress REAL DEFAULT 0,
+  error TEXT,
+  time_decode_ms INTEGER,
+  time_key_ms INTEGER,
+  time_bpm_ms INTEGER,
+  time_total_ms INTEGER,
+  seq INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS analysis_history (
+  id TEXT PRIMARY KEY,
+  track_id TEXT NOT NULL,
+  aspects TEXT NOT NULL,
+  status TEXT NOT NULL,
+  time_decode_ms INTEGER,
+  time_key_ms INTEGER,
+  time_bpm_ms INTEGER,
+  time_total_ms INTEGER,
+  finished_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 `;

@@ -112,6 +112,7 @@ export const rekordboxHandlers = {
         key_id: c.keyId ?? null,
         bpm: c.bpm ?? null,
         length: c.length ?? null,
+        bit_rate: c.bitRate ?? null,
         rating: c.rating ?? null,
         file_path: c.folderPath ?? null,
         album: c.albumId ? (albumMap.get(c.albumId) ?? null) : null,

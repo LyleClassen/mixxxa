@@ -13,15 +13,18 @@ export interface ColumnDef {
 }
 
 export const DEFAULT_COLUMNS: ColumnDef[] = [
-  { id: "cover",  label: "Cover Art", defaultWidth: 80,  minWidth: 40, alwaysVisible: false },
-  { id: "artist", label: "Artist",    defaultWidth: 160, minWidth: 40, alwaysVisible: false },
-  { id: "title",  label: "Title",     defaultWidth: 200, minWidth: 40, alwaysVisible: true  },
-  { id: "album",  label: "Album",     defaultWidth: 160, minWidth: 40, alwaysVisible: false },
-  { id: "bpm",    label: "BPM",       defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
-  { id: "key",    label: "Key",       defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
-  { id: "length", label: "Length",    defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
-  { id: "rating", label: "Rating",    defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
+  { id: "cover",   label: "Cover Art", defaultWidth: 80,  minWidth: 40, alwaysVisible: false },
+  { id: "artist",  label: "Artist",    defaultWidth: 160, minWidth: 40, alwaysVisible: false },
+  { id: "title",   label: "Title",     defaultWidth: 200, minWidth: 40, alwaysVisible: true  },
+  { id: "album",   label: "Album",     defaultWidth: 160, minWidth: 40, alwaysVisible: false },
+  { id: "bpm",     label: "BPM",       defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
+  { id: "key",     label: "Key",       defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
+  { id: "length",  label: "Time",      defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
+  { id: "bitrate", label: "Bitrate",   defaultWidth: 80,  minWidth: 40, alwaysVisible: false },
+  { id: "rating",  label: "Rating",    defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
 ];
+
+const DEFAULT_HIDDEN = new Set<string>([]);
 
 // ── useColumnConfig hook ──────────────────────────────────────────────────────
 
@@ -39,14 +42,13 @@ function loadConfig(storageKey: string): StoredConfig {
   return {
     order: DEFAULT_COLUMNS.map((c) => c.id),
     widths: Object.fromEntries(DEFAULT_COLUMNS.map((c) => [c.id, c.defaultWidth])),
-    hidden: [],
+    hidden: Array.from(DEFAULT_HIDDEN),
   };
 }
 
 function useColumnConfig(storageKey: string) {
   const [order, setOrder] = useState<string[]>(() => {
     const stored = loadConfig(storageKey);
-    // Merge: keep stored order but add any new columns at the end
     const extra = DEFAULT_COLUMNS.map((c) => c.id).filter((id) => !stored.order.includes(id));
     return [...stored.order.filter((id) => DEFAULT_COLUMNS.some((c) => c.id === id)), ...extra];
   });
@@ -59,7 +61,12 @@ function useColumnConfig(storageKey: string) {
 
   const [hidden, setHidden] = useState<Set<string>>(() => {
     const stored = loadConfig(storageKey);
-    return new Set(stored.hidden);
+    const base = new Set(stored.hidden);
+    // Ensure new analysis columns start hidden if not in stored config
+    for (const id of DEFAULT_HIDDEN) {
+      if (!stored.order.includes(id)) base.add(id);
+    }
+    return base;
   });
 
   useEffect(() => {
@@ -90,9 +97,9 @@ function useColumnConfig(storageKey: string) {
   return { order, widths, hidden, updateOrder, updateWidth, toggleHidden };
 }
 
-// ── ColumnContextMenu ─────────────────────────────────────────────────────────
+// ── ColumnContextMenu (header right-click) ────────────────────────────────────
 
-interface ContextMenuProps {
+interface ColumnContextMenuProps {
   pos: { x: number; y: number };
   columns: ColumnDef[];
   hidden: Set<string>;
@@ -100,7 +107,7 @@ interface ContextMenuProps {
   onClose: () => void;
 }
 
-function ColumnContextMenu({ pos, columns, hidden, onToggle, onClose }: ContextMenuProps) {
+function ColumnContextMenu({ pos, columns, hidden, onToggle, onClose }: ColumnContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -155,26 +162,86 @@ function ColumnContextMenu({ pos, columns, hidden, onToggle, onClose }: ContextM
   );
 }
 
+// ── RowContextMenu (track right-click) ───────────────────────────────────────
+
+interface RowContextMenuProps {
+  pos: { x: number; y: number };
+  track: Track;
+  playlistId: string | null;
+  onAnalyzeTrack: (track: Track) => void;
+  onAnalyzePlaylist: (playlistId: string) => void;
+  onClose: () => void;
+}
+
+function RowContextMenu({ pos, track, playlistId, onAnalyzeTrack, onAnalyzePlaylist, onClose }: RowContextMenuProps) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 1001 }}
+      className="bg-card border border-border rounded-md shadow-lg py-1 min-w-[180px]"
+    >
+      <button
+        onClick={() => { onAnalyzeTrack(track); onClose(); }}
+        className="w-full flex items-center px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors text-left"
+      >
+        Analyze track
+      </button>
+      {playlistId && (
+        <button
+          onClick={() => { onAnalyzePlaylist(playlistId); onClose(); }}
+          className="w-full flex items-center px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors text-left"
+        >
+          Analyze playlist
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── TrackTable ────────────────────────────────────────────────────────────────
 
 interface TrackTableProps {
   tracks: Track[];
   onTrackDoubleClick: (track: Track) => void;
+  onAnalyzeTrack?: (track: Track) => void;
+  onAnalyzePlaylist?: (playlistId: string) => void;
   storageKey: string;
+  currentPlaylistId: string | null;
 }
 
-export function TrackTable({ tracks, onTrackDoubleClick, storageKey }: TrackTableProps) {
+export function TrackTable({
+  tracks,
+  onTrackDoubleClick,
+  onAnalyzeTrack,
+  onAnalyzePlaylist,
+  storageKey,
+  currentPlaylistId,
+}: TrackTableProps) {
   const { order, widths, hidden, updateOrder, updateWidth, toggleHidden } = useColumnConfig(storageKey);
 
-  // Resize state (ref to avoid re-renders during drag)
   const resizeRef = useRef<{ colId: string; startX: number; startWidth: number } | null>(null);
-
-  // Reorder state
   const reorderRef = useRef<{ colId: string; startX: number } | null>(null);
   const [reorderDrag, setReorderDrag] = useState<{ colId: string; dropIndex: number } | null>(null);
 
-  // Context menu
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [headerMenuPos, setHeaderMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [rowMenu, setRowMenu] = useState<{ pos: { x: number; y: number }; track: Track } | null>(null);
 
   const headerRowRef = useRef<HTMLTableRowElement>(null);
 
@@ -201,12 +268,10 @@ export function TrackTable({ tracks, onTrackDoubleClick, storageKey }: TrackTabl
     newVisible.splice(fromIndex, 1);
     const adjustedDrop = dropIndex > fromIndex ? dropIndex - 1 : dropIndex;
     newVisible.splice(adjustedDrop, 0, dragColId);
-    // Rebuild full order preserving hidden columns' relative positions
     const hiddenInOrder = order.filter((id) => hidden.has(id));
     const newOrder = [...newVisible];
     for (const hiddenId of hiddenInOrder) {
       const origIdx = order.indexOf(hiddenId);
-      // Insert at same relative position
       let insertAt = newOrder.length;
       for (let i = origIdx - 1; i >= 0; i--) {
         const ref = order[i];
@@ -236,26 +301,47 @@ export function TrackTable({ tracks, onTrackDoubleClick, storageKey }: TrackTabl
         );
       case "album":
         return <span className="text-muted-foreground">{track.album || "—"}</span>;
-      case "bpm":
+      case "bpm": {
+        const differs = track.bpmDiffers;
         return (
-          <span className="font-mono text-muted-foreground">
+          <span className={`font-mono ${differs ? "text-yellow-400 font-bold" : "text-muted-foreground"}`}>
             {track.bpm != null ? track.bpm : "—"}
+            {differs && track.analyzedBpm != null && (
+              <span className="ml-1 text-xs opacity-70">({track.analyzedBpm.toFixed(1)})</span>
+            )}
           </span>
         );
-      case "key":
+      }
+      case "key": {
+        const differs = track.keyDiffers;
         return track.key ? (
-          <span className="bg-muted px-2 py-0.5 rounded text-xs font-bold inline-block min-w-[36px] text-center border border-border">
+          <span className={`px-2 py-0.5 rounded text-xs font-bold inline-block min-w-[36px] text-center border ${
+            differs
+              ? "bg-yellow-400/20 border-yellow-400/50 text-yellow-300"
+              : "bg-muted border-border"
+          }`}>
             {track.key}
+            {differs && track.analyzedKey && (
+              <span className="block text-[10px] opacity-70">{track.analyzedKey}</span>
+            )}
           </span>
         ) : (
           <span>—</span>
         );
-      case "length":
+      }
+      case "length": {
+        if (track.length == null) return <span>—</span>;
+        const totalSec = Math.round(track.length / 1000);
         return (
           <span className="font-mono text-muted-foreground">
-            {track.length != null
-              ? `${Math.floor(track.length / 60)}:${String(track.length % 60).padStart(2, "0")}`
-              : "—"}
+            {Math.floor(totalSec / 60)}:{String(totalSec % 60).padStart(2, "0")}
+          </span>
+        );
+      }
+      case "bitrate":
+        return (
+          <span className="font-mono text-muted-foreground">
+            {track.bitrate != null ? `${Math.round(track.bitrate / 1000)}` : "—"}
           </span>
         );
       case "rating":
@@ -273,13 +359,23 @@ export function TrackTable({ tracks, onTrackDoubleClick, storageKey }: TrackTabl
 
   return (
     <div className="relative w-full h-full overflow-auto">
-      {menuPos && (
+      {headerMenuPos && (
         <ColumnContextMenu
-          pos={menuPos}
+          pos={headerMenuPos}
           columns={DEFAULT_COLUMNS}
           hidden={hidden}
           onToggle={toggleHidden}
-          onClose={() => setMenuPos(null)}
+          onClose={() => setHeaderMenuPos(null)}
+        />
+      )}
+      {rowMenu && (
+        <RowContextMenu
+          pos={rowMenu.pos}
+          track={rowMenu.track}
+          playlistId={currentPlaylistId}
+          onAnalyzeTrack={onAnalyzeTrack ?? (() => {})}
+          onAnalyzePlaylist={onAnalyzePlaylist ?? (() => {})}
+          onClose={() => setRowMenu(null)}
         />
       )}
 
@@ -299,7 +395,7 @@ export function TrackTable({ tracks, onTrackDoubleClick, storageKey }: TrackTabl
             className="text-muted-foreground text-xs font-bold uppercase tracking-wider select-none"
             onContextMenu={(e) => {
               e.preventDefault();
-              setMenuPos({ x: e.clientX, y: e.clientY });
+              setHeaderMenuPos({ x: e.clientX, y: e.clientY });
             }}
           >
             {visibleCols.map((id, colIdx) => {
@@ -314,7 +410,6 @@ export function TrackTable({ tracks, onTrackDoubleClick, storageKey }: TrackTabl
                   className={`relative px-3 py-4 font-medium overflow-hidden ${isDragging ? "opacity-40 outline outline-1 outline-primary" : ""}`}
                   style={{ position: "relative" }}
                   onPointerDown={(e) => {
-                    // Only initiate reorder on primary button, not during resize
                     if (e.button !== 0) return;
                     e.currentTarget.setPointerCapture(e.pointerId);
                     reorderRef.current = { colId: id, startX: e.clientX };
@@ -344,14 +439,12 @@ export function TrackTable({ tracks, onTrackDoubleClick, storageKey }: TrackTabl
                     }
                   }}
                 >
-                  {/* Drop indicator — left edge */}
                   {showDropBefore && (
                     <span
                       className="absolute left-0 top-0 h-full w-0.5 bg-primary z-20"
                       style={{ pointerEvents: "none" }}
                     />
                   )}
-                  {/* Drop indicator — right edge of last col */}
                   {showDropAfter && (
                     <span
                       className="absolute right-0 top-0 h-full w-0.5 bg-primary z-20"
@@ -361,7 +454,6 @@ export function TrackTable({ tracks, onTrackDoubleClick, storageKey }: TrackTabl
 
                   <span className="truncate block pr-2">{col?.label ?? id}</span>
 
-                  {/* Resize handle */}
                   <span
                     className="absolute right-0 top-0 h-full w-2 cursor-col-resize z-10"
                     style={{ touchAction: "none" }}
@@ -395,10 +487,14 @@ export function TrackTable({ tracks, onTrackDoubleClick, storageKey }: TrackTabl
             <tr
               key={track.id}
               onDoubleClick={() => onTrackDoubleClick(track)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setRowMenu({ pos: { x: e.clientX, y: e.clientY }, track });
+              }}
               className="hover:bg-muted/30 transition-colors group cursor-pointer"
             >
               {visibleCols.map((id) => {
-                const isRight = id === "bpm" || id === "length" || id === "rating";
+                const isRight = id === "bpm" || id === "length" || id === "bitrate" || id === "rating";
                 const isCenter = id === "rating";
                 return (
                   <td

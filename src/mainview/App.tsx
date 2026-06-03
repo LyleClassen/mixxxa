@@ -1,9 +1,12 @@
-import { useState, useEffect, useMemo } from "react";
-import type { PlaylistNode, Track, SyncErrorKind } from "../shared/types";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings } from "../shared/types";
 import { electroview } from "./rpc";
 import { WaveformPlayer } from "./WaveformPlayer";
 import { TrackTable } from "./TrackTable";
+import { AnalysisPanel } from "./AnalysisPanel";
+import { SettingsPage } from "./SettingsPage";
 import { useDebounce } from "./hooks/useDebounce";
+import { initWorkerPool, setPoolSize } from "./analysis/workerPool";
 
 import {
   SkipBack,
@@ -17,6 +20,8 @@ import {
   Folder,
   ListMusic,
   Library,
+  ListTodo,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -24,17 +29,33 @@ const COLLECTION_ID = "__collection__";
 const SELECTED_PLAYLIST_KEY = "mixxxa.selectedPlaylistId";
 
 type SyncState = "idle" | "loading" | "ready" | "error";
+type RightPanel = "analysis" | "settings" | null;
+
+// ── Playlist tree node with right-click menu ──────────────────────────────────
 
 function PlaylistTreeNode({
   node,
   selectedId,
   onSelect,
+  onAnalyzePlaylist,
 }: {
   node: PlaylistNode;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onAnalyzePlaylist: (playlistId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    function close(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setCtxMenu(null);
+    }
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [ctxMenu]);
 
   if (node.isFolder) {
     return (
@@ -55,6 +76,7 @@ function PlaylistTreeNode({
                 node={child}
                 selectedId={selectedId}
                 onSelect={onSelect}
+                onAnalyzePlaylist={onAnalyzePlaylist}
               />
             ))}
           </div>
@@ -65,22 +87,45 @@ function PlaylistTreeNode({
 
   const isSelected = node.id === selectedId;
   return (
-    <button
-      onClick={() => onSelect(node.id)}
-      className={`w-full flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors ${
-        isSelected
-          ? "bg-muted/50 text-foreground border-l-2 border-primary"
-          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-      }`}
-    >
-      <ListMusic size={14} className="shrink-0" />
-      <span className="truncate">{node.name}</span>
-    </button>
+    <div className="relative">
+      <button
+        onClick={() => onSelect(node.id)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setCtxMenu({ x: e.clientX, y: e.clientY });
+        }}
+        className={`w-full flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors ${
+          isSelected
+            ? "bg-muted/50 text-foreground border-l-2 border-primary"
+            : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+        }`}
+      >
+        <ListMusic size={14} className="shrink-0" />
+        <span className="truncate">{node.name}</span>
+      </button>
+      {ctxMenu && (
+        <div
+          ref={menuRef}
+          style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 1000 }}
+          className="bg-card border border-border rounded-md shadow-lg py-1 min-w-[160px]"
+        >
+          <button
+            onClick={() => { onAnalyzePlaylist(node.id); setCtxMenu(null); }}
+            className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors"
+          >
+            Analyze playlist
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
+// ── App ───────────────────────────────────────────────────────────────────────
+
 function App() {
   const [activeTab, setActiveTab] = useState("collection");
+  const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const [playlistTree, setPlaylistTree] = useState<PlaylistNode[]>([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string>(() => {
     return localStorage.getItem(SELECTED_PLAYLIST_KEY) ?? COLLECTION_ID;
@@ -90,6 +135,16 @@ function App() {
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [syncError, setSyncError] = useState<SyncErrorKind | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Analysis state
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [analysisSettings, setAnalysisSettingsState] = useState<AnalysisSettings>({
+    parallelism: 2,
+    aspects: ["key", "bpm"],
+  });
+  const [isPaused, setIsPaused] = useState(false);
+  const workerPoolInitialized = useRef(false);
 
   const debouncedSearch = useDebounce(searchQuery, 200);
 
@@ -104,6 +159,56 @@ function App() {
     );
   }, [tracks, debouncedSearch]);
 
+  // ── Initialize analysis worker pool + settings ──────────────────────────────
+
+  useEffect(() => {
+    if (workerPoolInitialized.current) return;
+    workerPoolInitialized.current = true;
+
+    electroview.rpc!.request.getAnalysisSettings().then((s) => {
+      setAnalysisSettingsState(s);
+      initWorkerPool(s, async (method, params) => {
+        return (electroview.rpc!.request as Record<string, (p?: unknown) => Promise<unknown>>)[method]?.(params);
+      });
+    }).catch(() => {
+      initWorkerPool(analysisSettings, async (method, params) => {
+        return (electroview.rpc!.request as Record<string, (p?: unknown) => Promise<unknown>>)[method]?.(params);
+      });
+    });
+
+    // Load initial queue + history
+    electroview.rpc!.request.getAnalysisQueue().then(setQueue).catch(() => {});
+    electroview.rpc!.request.getAnalysisHistory().then(setHistory).catch(() => {});
+  }, []);
+
+  // Subscribe to queue updates from Bun
+  useEffect(() => {
+    if (!electroview.rpc) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyRpc = electroview.rpc as any;
+    const handler = (msg: { queue: QueueItem[] }) => {
+      setQueue(msg.queue);
+      if (msg.queue.some((i) => i.status === "done")) {
+        reloadTracks();
+      }
+    };
+    anyRpc.addMessageListener("analysisQueueUpdate", handler);
+    return () => {
+      anyRpc.removeMessageListener("analysisQueueUpdate", handler);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPlaylistId]);
+
+  function reloadTracks() {
+    if (selectedPlaylistId === COLLECTION_ID) {
+      electroview.rpc!.request.getAllTracks().then(setTracks).catch(() => {});
+    } else {
+      electroview.rpc!.request.getPlaylistTracks({ playlistId: selectedPlaylistId }).then(setTracks).catch(() => {});
+    }
+  }
+
+  // ── Load playlist tree ──────────────────────────────────────────────────────
+
   useEffect(() => {
     electroview.rpc!.request.getPlaylistTree().then((tree) => {
       if (tree.length > 0) {
@@ -113,7 +218,8 @@ function App() {
     }).catch(() => {});
   }, []);
 
-  // Load tracks when selection changes
+  // ── Load tracks on selection change ────────────────────────────────────────
+
   useEffect(() => {
     let cancelled = false;
     setTracks([]);
@@ -134,6 +240,8 @@ function App() {
 
     return () => { cancelled = true; };
   }, [selectedPlaylistId]);
+
+  // ── Sync ────────────────────────────────────────────────────────────────────
 
   async function handleSync() {
     setSyncState("loading");
@@ -167,6 +275,70 @@ function App() {
     return "Sync failed. Please try again.";
   }
 
+  // ── Analysis actions ────────────────────────────────────────────────────────
+
+  const handleAnalyzeTrack = useCallback(async (track: Track) => {
+    await electroview.rpc!.request.enqueueTrack({ trackId: track.id });
+    setRightPanel("analysis");
+    const updated = await electroview.rpc!.request.getAnalysisQueue();
+    setQueue(updated);
+  }, []);
+
+  const handleAnalyzePlaylist = useCallback(async (playlistId: string) => {
+    await electroview.rpc!.request.enqueuePlaylist({ playlistId });
+    setRightPanel("analysis");
+    const updated = await electroview.rpc!.request.getAnalysisQueue();
+    setQueue(updated);
+  }, []);
+
+  async function handlePause() {
+    await electroview.rpc!.request.pauseAnalysis();
+    setIsPaused(true);
+  }
+
+  async function handleResume() {
+    await electroview.rpc!.request.resumeAnalysis();
+    setIsPaused(false);
+  }
+
+  async function handleCancel() {
+    await electroview.rpc!.request.cancelAnalysis();
+    const updated = await electroview.rpc!.request.getAnalysisQueue();
+    setQueue(updated);
+  }
+
+  async function handleRemoveItem(itemId: string) {
+    await electroview.rpc!.request.removeQueueItem({ itemId });
+    const updated = await electroview.rpc!.request.getAnalysisQueue();
+    setQueue(updated);
+  }
+
+  async function handleMoveItem(itemId: string, direction: "up" | "down") {
+    await electroview.rpc!.request.moveQueueItem({ itemId, direction });
+    const updated = await electroview.rpc!.request.getAnalysisQueue();
+    setQueue(updated);
+  }
+
+  async function handlePruneHistory() {
+    await electroview.rpc!.request.pruneAnalysisHistory();
+    setHistory([]);
+  }
+
+  async function handleSettingsChange(patch: Partial<AnalysisSettings>) {
+    const updated = await electroview.rpc!.request.setAnalysisSettings(patch);
+    setAnalysisSettingsState(updated);
+    // Apply new parallelism to worker pool
+    if (patch.parallelism !== undefined) {
+      setPoolSize(updated.parallelism);
+    }
+  }
+
+  function togglePanel(panel: RightPanel) {
+    setRightPanel((cur) => cur === panel ? null : panel);
+  }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground font-sans selection:bg-primary/30">
 
@@ -196,7 +368,6 @@ function App() {
 
         {/* Playlist tree */}
         <nav className="flex-1 px-4 py-2 space-y-0.5 overflow-y-auto">
-          {/* Collection node — always visible, pinned first */}
           <button
             onClick={() => handleSelectPlaylist(COLLECTION_ID)}
             className={`w-full flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors ${
@@ -230,6 +401,7 @@ function App() {
               node={node}
               selectedId={selectedPlaylistId}
               onSelect={handleSelectPlaylist}
+              onAnalyzePlaylist={handleAnalyzePlaylist}
             />
           ))}
         </nav>
@@ -272,104 +444,175 @@ function App() {
               <RefreshCw size={14} className={syncState === "loading" ? "animate-spin" : ""} />
               SYNC
             </Button>
-            <div className="flex items-center gap-6 text-sm font-medium text-muted-foreground">
-              <button className="hover:text-foreground transition-colors">TUTORIALS</button>
-              <button className="hover:text-foreground transition-colors">SOFTWARE</button>
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <button
+                onClick={() => togglePanel("analysis")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded transition-colors ${
+                  rightPanel === "analysis"
+                    ? "bg-muted text-foreground"
+                    : "hover:text-foreground"
+                }`}
+              >
+                <ListTodo size={14} />
+                ANALYSIS
+                {queue.some((i) => i.status === "running" || i.status === "queued") && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                )}
+              </button>
+              <button
+                onClick={() => togglePanel("settings")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded transition-colors ${
+                  rightPanel === "settings"
+                    ? "bg-muted text-foreground"
+                    : "hover:text-foreground"
+                }`}
+              >
+                <Settings size={14} />
+                SETTINGS
+              </button>
             </div>
           </div>
         </header>
 
-        {/* Player Section */}
-        <section className="p-6 border-b border-border bg-card/50 flex flex-col gap-4 shrink-0">
-          <WaveformPlayer track={loadedTrack} />
+        <div className="flex-1 flex min-h-0">
+          {/* Left: player + track list */}
+          <div className="flex-1 flex flex-col min-w-0">
 
-          <div className="flex items-end justify-between">
-            <div>
-              <h2 className="text-2xl font-light tracking-tight mb-2">
-                {loadedTrack
-                  ? `${loadedTrack.artist ? loadedTrack.artist + " – " : ""}${loadedTrack.title || "Unknown"}`
-                  : "No track loaded"}
-              </h2>
-              <div className="flex items-center gap-6 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Key</span>
-                  {loadedTrack?.key ? (
-                    <span className="bg-key-cyan text-black px-2 py-0.5 rounded text-xs font-bold">{loadedTrack.key}</span>
-                  ) : (
-                    <span className="text-muted-foreground text-xs">—</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">BPM</span>
-                  {loadedTrack?.bpm != null ? (
-                    <span className="bg-muted px-2 py-0.5 rounded text-xs font-medium border border-border">{loadedTrack.bpm}</span>
-                  ) : (
-                    <span className="text-muted-foreground text-xs">—</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 ml-4 border-l border-border pl-6">
-                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Cue Points</span>
-                  <div className="flex items-center gap-1">
-                    <button className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors"><SkipBack size={14} /></button>
-                    <button className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors"><SkipForward size={14} /></button>
+            {/* Player Section */}
+            <section className="p-6 border-b border-border bg-card/50 flex flex-col gap-4 shrink-0">
+              <WaveformPlayer track={loadedTrack} />
+
+              <div className="flex items-end justify-between">
+                <div>
+                  <h2 className="text-2xl font-light tracking-tight mb-2">
+                    {loadedTrack
+                      ? `${loadedTrack.artist ? loadedTrack.artist + " – " : ""}${loadedTrack.title || "Unknown"}`
+                      : "No track loaded"}
+                  </h2>
+                  <div className="flex items-center gap-6 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Key</span>
+                      {loadedTrack?.key ? (
+                        <span className="bg-key-cyan text-black px-2 py-0.5 rounded text-xs font-bold">{loadedTrack.key}</span>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">BPM</span>
+                      {loadedTrack?.bpm != null ? (
+                        <span className="bg-muted px-2 py-0.5 rounded text-xs font-medium border border-border">{loadedTrack.bpm}</span>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 ml-4 border-l border-border pl-6">
+                      <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Cue Points</span>
+                      <div className="flex items-center gap-1">
+                        <button className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors"><SkipBack size={14} /></button>
+                        <button className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors"><SkipForward size={14} /></button>
+                      </div>
+                      <Button variant="outline" size="sm" className="h-7 text-xs border-dashed text-muted-foreground hover:text-foreground">ADD CUE</Button>
+                    </div>
+                    <div className="flex items-center gap-2 ml-4 border-l border-border pl-6">
+                      <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Virtual Piano</span>
+                      <button className="p-1 hover:text-primary transition-colors"><Piano size={18} /></button>
+                    </div>
                   </div>
-                  <Button variant="outline" size="sm" className="h-7 text-xs border-dashed text-muted-foreground hover:text-foreground">ADD CUE</Button>
-                </div>
-                <div className="flex items-center gap-2 ml-4 border-l border-border pl-6">
-                  <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Virtual Piano</span>
-                  <button className="p-1 hover:text-primary transition-colors"><Piano size={18} /></button>
                 </div>
               </div>
-            </div>
-          </div>
-        </section>
+            </section>
 
-        {/* Track List */}
-        <section className="flex-1 flex flex-col min-h-0 bg-background">
-          <div className="px-6 py-3 border-b border-border flex items-center justify-between shrink-0">
-            <div className="relative w-64">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search tracks"
-                className="w-full bg-muted/50 border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all placeholder:text-muted-foreground/70"
-              />
-            </div>
-            <div className="text-sm font-medium text-muted-foreground">
-              {filteredTracks.length} TRACKS
-            </div>
+            {/* Track List */}
+            <section className="flex-1 flex flex-col min-h-0 bg-background">
+              <div className="px-6 py-3 border-b border-border flex items-center justify-between shrink-0">
+                <div className="relative w-64">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search tracks"
+                    className="w-full bg-muted/50 border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all placeholder:text-muted-foreground/70"
+                  />
+                </div>
+                <div className="text-sm font-medium text-muted-foreground">
+                  {filteredTracks.length} TRACKS
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0">
+                {filteredTracks.length === 0 && debouncedSearch.trim() ? (
+                  <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
+                    No tracks found.
+                  </div>
+                ) : filteredTracks.length === 0 && selectedPlaylistId !== COLLECTION_ID ? (
+                  <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
+                    {tracks.length === 0
+                      ? syncState === "ready" || playlistTree.length > 0
+                        ? "No tracks in this playlist."
+                        : "Sync your Rekordbox library to get started."
+                      : "No tracks found."}
+                  </div>
+                ) : filteredTracks.length === 0 ? (
+                  <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
+                    {syncState === "ready" || playlistTree.length > 0
+                      ? "No tracks in your library yet. Sync to import."
+                      : "Sync your Rekordbox library to get started."}
+                  </div>
+                ) : (
+                  <TrackTable
+                    tracks={filteredTracks}
+                    onTrackDoubleClick={setLoadedTrack}
+                    onAnalyzeTrack={handleAnalyzeTrack}
+                    onAnalyzePlaylist={handleAnalyzePlaylist}
+                    storageKey="mixxxa.trackTableColumns"
+                    currentPlaylistId={selectedPlaylistId === COLLECTION_ID ? null : selectedPlaylistId}
+                  />
+                )}
+              </div>
+            </section>
           </div>
 
-          <div className="flex-1 min-h-0">
-            {filteredTracks.length === 0 && debouncedSearch.trim() ? (
-              <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
-                No tracks found.
+          {/* Right panel: Analysis or Settings */}
+          {rightPanel && (
+            <aside className="w-80 border-l border-border bg-card flex flex-col shrink-0">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  {rightPanel === "analysis" ? "Analysis" : "Settings"}
+                </span>
+                <button
+                  onClick={() => setRightPanel(null)}
+                  className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none"
+                >
+                  ✕
+                </button>
               </div>
-            ) : filteredTracks.length === 0 && selectedPlaylistId !== COLLECTION_ID ? (
-              <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
-                {tracks.length === 0
-                  ? syncState === "ready" || playlistTree.length > 0
-                    ? "No tracks in this playlist."
-                    : "Sync your Rekordbox library to get started."
-                  : "No tracks found."}
+              <div className="flex-1 min-h-0 overflow-y-auto">
+                {rightPanel === "analysis" && (
+                  <AnalysisPanel
+                    queue={queue}
+                    history={history}
+                    isPaused={isPaused}
+                    onPause={handlePause}
+                    onResume={handleResume}
+                    onCancel={handleCancel}
+                    onRemove={handleRemoveItem}
+                    onMoveUp={(id) => handleMoveItem(id, "up")}
+                    onMoveDown={(id) => handleMoveItem(id, "down")}
+                    onPrune={handlePruneHistory}
+                  />
+                )}
+                {rightPanel === "settings" && (
+                  <SettingsPage
+                    settings={analysisSettings}
+                    onChange={handleSettingsChange}
+                  />
+                )}
               </div>
-            ) : filteredTracks.length === 0 ? (
-              <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
-                {syncState === "ready" || playlistTree.length > 0
-                  ? "No tracks in your library yet. Sync to import."
-                  : "Sync your Rekordbox library to get started."}
-              </div>
-            ) : (
-              <TrackTable
-                tracks={filteredTracks}
-                onTrackDoubleClick={setLoadedTrack}
-                storageKey="mixxxa.trackTableColumns"
-              />
-            )}
-          </div>
-        </section>
+            </aside>
+          )}
+        </div>
 
       </main>
     </div>

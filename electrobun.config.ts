@@ -12,7 +12,7 @@ export default {
 			"dist/index.html": "views/mainview/index.html",
 			"dist/assets": "views/mainview/assets",
 		},
-		// Ignore Vite output in watch mode — HMR handles view rebuilds separately
+		// Ignore Vite build output in watch mode
 		watchIgnore: ["dist/**"],
 		mac: {
 			bundleCEF: false,

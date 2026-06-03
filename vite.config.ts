@@ -15,6 +15,9 @@ export default defineConfig({
 		outDir: "../../dist",
 		emptyOutDir: true,
 	},
+	worker: {
+		format: "es",
+	},
 	server: {
 		port: 5173,
 		strictPort: true,

@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs";
 import { getDb } from "./db/localDb";
+import { getPcmBuffer } from "./analysis/index";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-  "Access-Control-Allow-Headers": "Range",
+  "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Range, Content-Type",
   "Access-Control-Expose-Headers": "Content-Range, Accept-Ranges, Content-Length",
 };
 
@@ -23,6 +24,21 @@ export function startAudioServer(dataDir: string): void {
       }
 
       const url = new URL(req.url);
+
+      // PCM endpoint for analysis workers
+      const pcmMatch = url.pathname.match(/^\/pcm\/(.+)$/);
+      if (pcmMatch) {
+        const buf = getPcmBuffer(pcmMatch[1]);
+        if (!buf) return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
+        return new Response(buf, {
+          headers: {
+            ...CORS_HEADERS,
+            "Content-Type": "application/octet-stream",
+            "Content-Length": String(buf.byteLength),
+          },
+        });
+      }
+
       const match = url.pathname.match(/^\/audio\/(.+)$/);
       if (!match) return new Response("Not Found", { status: 404 });
 

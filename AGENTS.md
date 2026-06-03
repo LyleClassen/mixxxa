@@ -71,6 +71,27 @@ Electrobun produces a per-platform bundle under
 - `Resources/app/views/mainview/` — Vite build output (only used when
   HMR is off).
 
+## Audio analysis assets (track-analysis-essentia)
+
+### 1. `ffmpeg` binary
+
+`ffmpeg-static` is listed as an npm dependency and ships a platform `ffmpeg` binary at:
+```
+node_modules/ffmpeg-static/ffmpeg.exe  (Windows)
+node_modules/ffmpeg-static/ffmpeg      (Mac/Linux)
+```
+`src/bun/analysis/decoder.ts` imports the path via `import ffmpegPath from 'ffmpeg-static'`.
+
+**Electrobun bundling caveat:** The Bun bundler inlines `ffmpeg-static`'s path string, but does NOT copy the binary into the app bundle. When building for distribution (`bun run build:canary`) you must arrange to ship the binary alongside the bundle (e.g., copy to `Resources/app/bun/ffmpeg.exe`) and adjust the path resolution in `decoder.ts`. During development (`bun run dev:hmr`) the path in `node_modules/` works as-is.
+
+### 2. Analysis scope: Key + BPM only
+
+Track analysis computes **only Key and BPM**, both via Essentia.js (WASM) in the
+renderer worker (`src/mainview/analysis/analysisWorker.ts` — `KeyExtractor` +
+`RhythmExtractor2013`). Audio is decoded to 44.1 kHz mono PCM in Bun (`decoder.ts`,
+ffmpeg) and served to the worker over `GET /pcm/{itemId}`. There is **no Python
+sidecar, ONNX, or ML model** in the pipeline — genre/mood/arousal were removed.
+
 ## Gotchas
 
 - The Vite dev server is plain HTTP on `:5173`; the bun process probes
