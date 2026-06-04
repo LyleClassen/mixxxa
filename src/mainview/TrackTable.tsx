@@ -13,18 +13,19 @@ export interface ColumnDef {
 }
 
 export const DEFAULT_COLUMNS: ColumnDef[] = [
-  { id: "cover",   label: "Cover Art", defaultWidth: 80,  minWidth: 40, alwaysVisible: false },
-  { id: "artist",  label: "Artist",    defaultWidth: 160, minWidth: 40, alwaysVisible: false },
-  { id: "title",   label: "Title",     defaultWidth: 200, minWidth: 40, alwaysVisible: true  },
-  { id: "album",   label: "Album",     defaultWidth: 160, minWidth: 40, alwaysVisible: false },
-  { id: "bpm",     label: "BPM",       defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
-  { id: "key",     label: "Key",       defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
-  { id: "length",  label: "Time",      defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
-  { id: "bitrate", label: "Bitrate",   defaultWidth: 80,  minWidth: 40, alwaysVisible: false },
-  { id: "rating",  label: "Rating",    defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
+  { id: "cover",            label: "Cover Art",       defaultWidth: 80,  minWidth: 40, alwaysVisible: false },
+  { id: "artist",           label: "Artist",          defaultWidth: 160, minWidth: 40, alwaysVisible: false },
+  { id: "title",            label: "Title",           defaultWidth: 200, minWidth: 40, alwaysVisible: true  },
+  { id: "album",            label: "Album",           defaultWidth: 160, minWidth: 40, alwaysVisible: false },
+  { id: "bpm",              label: "BPM",             defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
+  { id: "key",              label: "Key",             defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
+  { id: "length",           label: "Time",            defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
+  { id: "bitrate",          label: "Bitrate",         defaultWidth: 80,  minWidth: 40, alwaysVisible: false },
+  { id: "analyzed_bitrate", label: "Analyzed Bitrate",defaultWidth: 100, minWidth: 50, alwaysVisible: false },
+  { id: "rating",           label: "Rating",          defaultWidth: 70,  minWidth: 40, alwaysVisible: false },
 ];
 
-const DEFAULT_HIDDEN = new Set<string>([]);
+const DEFAULT_HIDDEN = new Set<string>(["analyzed_bitrate"]);
 
 // ── useColumnConfig hook ──────────────────────────────────────────────────────
 
@@ -344,6 +345,21 @@ export function TrackTable({
             {track.bitrate != null ? `${track.bitrate}` : "—"}
           </span>
         );
+      case "analyzed_bitrate": {
+        if (track.analyzedBitrate == null) return <span className="text-muted-foreground">—</span>;
+        const mismatch =
+          track.bitrate != null && Math.abs(track.analyzedBitrate - track.bitrate) > 10;
+        return (
+          <span className={`font-mono flex items-center gap-1 justify-end ${mismatch ? "text-yellow-400 font-bold" : "text-muted-foreground"}`}>
+            {track.analyzedBitrate}
+            {mismatch && (
+              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 shrink-0 fill-yellow-400" aria-label="Mismatch">
+                <path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-3.5a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-1.5 0v-3A.75.75 0 0 1 8 4.5Zm0 6.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" />
+              </svg>
+            )}
+          </span>
+        );
+      }
       case "rating":
         return (
           <span className="font-mono text-muted-foreground">
@@ -494,7 +510,7 @@ export function TrackTable({
               className="hover:bg-muted/30 transition-colors group cursor-pointer"
             >
               {visibleCols.map((id) => {
-                const isRight = id === "bpm" || id === "length" || id === "bitrate" || id === "rating";
+                const isRight = id === "bpm" || id === "length" || id === "bitrate" || id === "analyzed_bitrate" || id === "rating";
                 const isCenter = id === "rating";
                 return (
                   <td

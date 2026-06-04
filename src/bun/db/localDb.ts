@@ -12,11 +12,13 @@ const CONTENT_ANALYSIS_COLUMNS = [
   "bit_rate INTEGER",
   "analyzed_bpm REAL",
   "analyzed_key TEXT",
+  "analyzed_bitrate INTEGER",
   "analysis_status TEXT",
   "analyzed_at INTEGER",
   "time_decode_ms INTEGER",
   "time_key_ms INTEGER",
   "time_bpm_ms INTEGER",
+  "time_bitrate_ms INTEGER",
   "time_total_ms INTEGER",
 ];
 
@@ -66,6 +68,17 @@ export function getDb(dataDir: string): Database {
       }
     }
   }
+
+  // Idempotent migration: add time_bitrate_ms to analysis_queue and analysis_history
+  for (const table of ["analysis_queue", "analysis_history"]) {
+    const present = new Set(
+      db.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all().map((c) => c.name),
+    );
+    if (!present.has("time_bitrate_ms")) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN time_bitrate_ms INTEGER`);
+    }
+  }
+
   return db;
 }
 
@@ -114,6 +127,7 @@ type ContentRow = {
   bit_rate: number | null;
   analyzed_bpm: number | null;
   analyzed_key: string | null;
+  analyzed_bitrate: number | null;
   analysis_status: string | null;
 };
 
@@ -145,6 +159,7 @@ function rowToTrack(row: ContentRow): Track {
     key: rbKey,
     length: row.length ?? null,
     bitrate: row.bit_rate ?? null,
+    analyzedBitrate: row.analyzed_bitrate ?? null,
     rating: row.rating ?? null,
     filePath: row.file_path ?? null,
     analyzedBpm,
@@ -168,6 +183,7 @@ const TRACK_SELECT = `
   k.name AS key_name,
   c.analyzed_bpm,
   c.analyzed_key,
+  c.analyzed_bitrate,
   c.analysis_status
 `;
 
@@ -240,12 +256,13 @@ export function appendAnalysisHistory(database: Database, entry: {
   timeDecodeMs?: number | null;
   timeKeyMs?: number | null;
   timeBpmMs?: number | null;
+  timeBitrateMs?: number | null;
   timeTotalMs?: number | null;
 }): void {
   database.run(
     `INSERT INTO analysis_history
-      (id, track_id, aspects, status, time_decode_ms, time_key_ms, time_bpm_ms, time_total_ms, finished_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, track_id, aspects, status, time_decode_ms, time_key_ms, time_bpm_ms, time_bitrate_ms, time_total_ms, finished_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     entry.id,
     entry.trackId,
     JSON.stringify(entry.aspects),
@@ -253,8 +270,16 @@ export function appendAnalysisHistory(database: Database, entry: {
     entry.timeDecodeMs ?? null,
     entry.timeKeyMs ?? null,
     entry.timeBpmMs ?? null,
+    entry.timeBitrateMs ?? null,
     entry.timeTotalMs ?? null,
     Date.now(),
+  );
+}
+
+export function writeAnalyzedBitrate(database: Database, trackId: string, bitrate: number, timeBitrateMs: number): void {
+  database.run(
+    "UPDATE content SET analyzed_bitrate = ?, time_bitrate_ms = ? WHERE id = ?",
+    [bitrate, timeBitrateMs, trackId],
   );
 }
 
@@ -267,6 +292,7 @@ export function readAnalysisHistory(database: Database): HistoryEntry[] {
     time_decode_ms: number | null;
     time_key_ms: number | null;
     time_bpm_ms: number | null;
+    time_bitrate_ms: number | null;
     time_total_ms: number | null;
     finished_at: number;
   };
@@ -281,6 +307,7 @@ export function readAnalysisHistory(database: Database): HistoryEntry[] {
     timeDecodeMs: r.time_decode_ms ?? undefined,
     timeKeyMs: r.time_key_ms ?? undefined,
     timeBpmMs: r.time_bpm_ms ?? undefined,
+    timeBitrateMs: r.time_bitrate_ms ?? undefined,
     timeTotalMs: r.time_total_ms ?? undefined,
     finishedAt: r.finished_at,
   }));

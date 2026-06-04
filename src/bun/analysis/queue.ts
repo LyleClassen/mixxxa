@@ -18,6 +18,7 @@ export interface QueueRow {
   time_decode_ms: number | null;
   time_key_ms: number | null;
   time_bpm_ms: number | null;
+  time_bitrate_ms: number | null;
   time_total_ms: number | null;
   seq: number;
   created_at: number;
@@ -39,6 +40,7 @@ function rowToItem(row: QueueRow, meta: TrackMeta): QueueItem {
     timeDecodeMs: row.time_decode_ms ?? undefined,
     timeKeyMs: row.time_key_ms ?? undefined,
     timeBpmMs: row.time_bpm_ms ?? undefined,
+    timeBitrateMs: row.time_bitrate_ms ?? undefined,
     timeTotalMs: row.time_total_ms ?? undefined,
   };
 }
@@ -104,12 +106,14 @@ export class AnalysisQueueStore {
         time_decode_ms = COALESCE(?, time_decode_ms),
         time_key_ms = COALESCE(?, time_key_ms),
         time_bpm_ms = COALESCE(?, time_bpm_ms),
+        time_bitrate_ms = COALESCE(?, time_bitrate_ms),
         time_total_ms = COALESCE(?, time_total_ms)
        WHERE id = ?`,
       phase, progress,
       timings?.timeDecodeMs ?? null,
       timings?.timeKeyMs ?? null,
       timings?.timeBpmMs ?? null,
+      timings?.timeBitrateMs ?? null,
       timings?.timeTotalMs ?? null,
       id,
     );

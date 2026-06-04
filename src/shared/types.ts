@@ -16,6 +16,7 @@ export interface Track {
   key: string;
   length: number | null;
   bitrate: number | null;
+  analyzedBitrate: number | null;
   rating: number | null;
   filePath: string | null;
   // Analyzed values (null = not yet analyzed)
@@ -31,7 +32,7 @@ export type SyncErrorKind = "not-found" | "unreadable";
 
 // ── Analysis types ────────────────────────────────────────────────────────────
 
-export type AnalysisAspect = "key" | "bpm";
+export type AnalysisAspect = "key" | "bpm" | "bitrate";
 
 export interface AnalysisSettings {
   parallelism: number;
@@ -42,6 +43,7 @@ export type AnalysisPhase =
   | "decoding"
   | "key"
   | "bpm"
+  | "bitrate"
   | "persisting";
 
 export type QueueItemStatus = "queued" | "running" | "done" | "failed" | "canceled";
@@ -50,6 +52,7 @@ export interface QueueItemTimings {
   timeDecodeMs?: number;
   timeKeyMs?: number;
   timeBpmMs?: number;
+  timeBitrateMs?: number;
   timeTotalMs?: number;
 }
 

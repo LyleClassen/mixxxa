@@ -10,9 +10,11 @@ import type {
 } from "../../shared/types";
 import { AnalysisQueueStore } from "./queue";
 import { decodeAudio } from "./decoder";
+import { analyzeBitrate } from "./bitrate";
 import { loadSettings, saveSettings } from "./settings";
 import {
   writeAnalyzedValues,
+  writeAnalyzedBitrate,
   appendAnalysisHistory,
   readAnalysisHistory,
   pruneAnalysisHistory,
@@ -131,7 +133,8 @@ export function pruneHistory(db: Database): void {
 
 /**
  * Called by renderer workers to claim the next item to analyze.
- * Bun decodes the track and serves the PCM, then responds with the URL.
+ * Bitrate is handled here in Bun via ffprobe; remaining aspects are decoded
+ * and served to the renderer worker as PCM.
  */
 export async function claimWork(db: Database): Promise<ClaimResponse | null> {
   if (paused) return null;
@@ -141,6 +144,8 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
   if (queued.length === 0) return null;
 
   const row = queued[0];
+  const allAspects = JSON.parse(row.aspects) as ClaimResponse["aspects"];
+
   store.setStatus(row.id, "running");
   schedulePush(store);
 
@@ -151,6 +156,38 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
 
   if (!fileRow?.file_path) {
     store.setStatus(row.id, "failed", "Track file path not found");
+    schedulePush(store);
+    return null;
+  }
+
+  // Handle bitrate in Bun directly via ffprobe (bypasses renderer PCM path)
+  let timeBitrateMs: number | undefined;
+  if (allAspects.includes("bitrate")) {
+    store.setPhaseProgress(row.id, "bitrate", 0);
+    schedulePush(store);
+
+    const t0 = Date.now();
+    const result = await analyzeBitrate(fileRow.file_path);
+    timeBitrateMs = Date.now() - t0;
+
+    if (result.ok) {
+      writeAnalyzedBitrate(db, row.track_id, result.bitrate, timeBitrateMs);
+    }
+    store.setPhaseProgress(row.id, "bitrate", 1, { timeBitrateMs });
+    schedulePush(store);
+  }
+
+  // If bitrate was the only requested aspect, complete here without a renderer claim
+  const rendererAspects = allAspects.filter((a) => a !== "bitrate");
+  if (rendererAspects.length === 0) {
+    store.setStatus(row.id, "done");
+    appendAnalysisHistory(db, {
+      id: randomUUID(),
+      trackId: row.track_id,
+      aspects: allAspects,
+      status: "done",
+      timeBitrateMs,
+    });
     schedulePush(store);
     return null;
   }
@@ -170,7 +207,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
     trackId: row.track_id,
     filePath: fileRow.file_path,
     pcmUrl: `http://127.0.0.1:${port}/pcm/${row.id}`,
-    aspects: JSON.parse(row.aspects),
+    aspects: rendererAspects,
   };
 }
 
@@ -217,6 +254,7 @@ export function reportResult(db: Database, result: AnalysisResult): void {
     aspects: JSON.parse(row.aspects),
     status: result.success ? "done" : "failed",
     ...result.timings,
+    timeBitrateMs: row.time_bitrate_ms ?? undefined,
   });
 
   schedulePush(store);

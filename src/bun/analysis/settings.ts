@@ -1,9 +1,11 @@
 import type { Database } from "bun:sqlite";
 import type { AnalysisAspect, AnalysisSettings } from "../../shared/types";
 
+const VALID_ASPECTS: ReadonlySet<AnalysisAspect> = new Set(["key", "bpm", "bitrate"]);
+
 const DEFAULT_SETTINGS: AnalysisSettings = {
   parallelism: 2,
-  aspects: ["key", "bpm"],
+  aspects: ["key", "bpm"], // bitrate is opt-in
 };
 
 export function loadSettings(db: Database): AnalysisSettings {
@@ -20,7 +22,8 @@ export function loadSettings(db: Database): AnalysisSettings {
   let aspects: AnalysisAspect[] = DEFAULT_SETTINGS.aspects;
   if (map.has("aspects")) {
     try {
-      aspects = JSON.parse(map.get("aspects")!) as AnalysisAspect[];
+      const parsed = JSON.parse(map.get("aspects")!) as string[];
+      aspects = parsed.filter((a): a is AnalysisAspect => VALID_ASPECTS.has(a as AnalysisAspect));
     } catch {}
   }
 

@@ -1,8 +1,9 @@
 import type { AnalysisSettings, AnalysisAspect } from "../shared/types";
 
 const ASPECTS: { id: AnalysisAspect; label: string; description: string }[] = [
-  { id: "key",     label: "Key",    description: "Musical key detection (Essentia DSP)" },
-  { id: "bpm",     label: "BPM",    description: "Tempo detection (Essentia DSP)" },
+  { id: "key",     label: "Key",     description: "Musical key detection (Essentia DSP)" },
+  { id: "bpm",     label: "BPM",     description: "Tempo detection (Essentia DSP)" },
+  { id: "bitrate", label: "Bitrate", description: "True average bitrate via ffprobe packet counting (opt-in)" },
 ];
 
 interface SettingsPageProps {
