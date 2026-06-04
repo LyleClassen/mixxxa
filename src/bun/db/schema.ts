@@ -28,12 +28,17 @@ CREATE TABLE IF NOT EXISTS content (
   analyzed_bpm REAL,
   analyzed_key TEXT,
   analyzed_bitrate INTEGER,
+  analyzed_energy REAL,
+  analyzed_loudness_db REAL,
+  analyzed_dynamic_range_db REAL,
+  analyzed_danceability REAL,
   analysis_status TEXT,
   analyzed_at INTEGER,
   time_decode_ms INTEGER,
   time_key_ms INTEGER,
   time_bpm_ms INTEGER,
   time_bitrate_ms INTEGER,
+  time_orbit_ms INTEGER,
   time_total_ms INTEGER
 );
 
@@ -59,6 +64,7 @@ CREATE TABLE IF NOT EXISTS analysis_queue (
   time_key_ms INTEGER,
   time_bpm_ms INTEGER,
   time_bitrate_ms INTEGER,
+  time_orbit_ms INTEGER,
   time_total_ms INTEGER,
   seq INTEGER NOT NULL,
   created_at INTEGER NOT NULL
@@ -73,6 +79,7 @@ CREATE TABLE IF NOT EXISTS analysis_history (
   time_key_ms INTEGER,
   time_bpm_ms INTEGER,
   time_bitrate_ms INTEGER,
+  time_orbit_ms INTEGER,
   time_total_ms INTEGER,
   finished_at INTEGER NOT NULL
 );

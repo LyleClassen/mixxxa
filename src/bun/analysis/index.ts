@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { basename } from "node:path";
 import type { Database } from "bun:sqlite";
 import type {
   QueueItem,
@@ -12,6 +13,8 @@ import { AnalysisQueueStore } from "./queue";
 import { decodeAudio } from "./decoder";
 import { analyzeBitrate } from "./bitrate";
 import { loadSettings, saveSettings } from "./settings";
+import { analyzeOrbit } from "./sidecar";
+import { normalizeKey } from "../../shared/camelot";
 import {
   writeAnalyzedValues,
   writeAnalyzedBitrate,
@@ -21,6 +24,7 @@ import {
   readPlaylistTracks,
 } from "../db/localDb";
 import { getAudioServerPort } from "../audioServer";
+import { bunLog } from "../bunLog";
 
 // PCM blobs stored in memory, keyed by itemId, freed after claim is fulfilled
 const pcmCache = new Map<string, ArrayBuffer>();
@@ -133,8 +137,11 @@ export function pruneHistory(db: Database): void {
 
 /**
  * Called by renderer workers to claim the next item to analyze.
- * Bitrate is handled here in Bun via ffprobe; remaining aspects are decoded
- * and served to the renderer worker as PCM.
+ *
+ * Routing:
+ *  - bitrate aspect: handled Bun-side via ffprobe (engine-independent)
+ *  - engine === "orbit": handled entirely Bun-side via Python sidecar
+ *  - engine === "essentia": remaining aspects decoded to PCM → renderer worker
  */
 export async function claimWork(db: Database): Promise<ClaimResponse | null> {
   if (paused) return null;
@@ -155,12 +162,19 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
   ).get(row.track_id);
 
   if (!fileRow?.file_path) {
+    bunLog("ANALYSIS", `claim failed: no file path for track ${row.track_id}`);
     store.setStatus(row.id, "failed", "Track file path not found");
     schedulePush(store);
     return null;
   }
 
-  // Handle bitrate in Bun directly via ffprobe (bypasses renderer PCM path)
+  const trackName = basename(fileRow.file_path);
+  bunLog("ANALYSIS", `claim: ${trackName} aspects=[${allAspects.join(",")}]`);
+
+  const settings = loadSettings(db);
+
+  // ── Bitrate (always Bun-side via ffprobe, engine-independent) ────────────
+
   let timeBitrateMs: number | undefined;
   if (allAspects.includes("bitrate")) {
     store.setPhaseProgress(row.id, "bitrate", 0);
@@ -172,10 +186,89 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
 
     if (result.ok) {
       writeAnalyzedBitrate(db, row.track_id, result.bitrate, timeBitrateMs);
+      bunLog("ANALYSIS", `bitrate: ${trackName} = ${result.bitrate} kbps (${timeBitrateMs}ms)`);
+    } else {
+      bunLog("ANALYSIS", `bitrate error: ${trackName} (${timeBitrateMs}ms)`);
     }
     store.setPhaseProgress(row.id, "bitrate", 1, { timeBitrateMs });
     schedulePush(store);
   }
+
+  // ── ORBIT engine: full analysis Bun-side via Python sidecar ─────────────
+
+  if (settings.engine === "orbit") {
+    const orbitAspects = allAspects.filter((a) => a !== "bitrate");
+
+    if (orbitAspects.length === 0) {
+      // Bitrate-only with ORBIT engine — complete here
+      store.setStatus(row.id, "done");
+      appendAnalysisHistory(db, {
+        id: randomUUID(),
+        trackId: row.track_id,
+        aspects: allAspects,
+        status: "done",
+        timeBitrateMs,
+      });
+      schedulePush(store);
+      return null;
+    }
+
+    store.setPhaseProgress(row.id, "orbit", 0);
+    schedulePush(store);
+
+    const t0 = Date.now();
+    try {
+      const orbitResult = await analyzeOrbit(fileRow.file_path, 600);
+      const timeOrbitMs = Date.now() - t0;
+
+      const normalized = normalizeKey(
+        orbitResult.key.split(" ")[0] ?? orbitResult.key,
+        orbitResult.key.split(" ")[1] ?? "",
+      );
+
+      writeAnalyzedValues(db, row.track_id, {
+        ...(orbitAspects.includes("key") || orbitAspects.includes("bpm") ? {
+          analyzedKey: orbitAspects.includes("key") ? normalized : undefined,
+          analyzedBpm: orbitAspects.includes("bpm") ? orbitResult.bpm : undefined,
+        } : {}),
+        ...(orbitAspects.includes("energy") ? { analyzedEnergy: orbitResult.energy } : {}),
+        ...(orbitAspects.includes("loudness") ? { analyzedLoudnessDb: orbitResult.loudnessDb } : {}),
+        ...(orbitAspects.includes("dynamics") ? { analyzedDynamicRangeDb: orbitResult.dynamicRangeDb } : {}),
+        ...(orbitAspects.includes("danceability") ? { analyzedDanceability: orbitResult.danceability } : {}),
+        analysisStatus: "done",
+        timeOrbitMs,
+        timeTotalMs: (timeBitrateMs ?? 0) + timeOrbitMs,
+      });
+
+      store.setPhaseProgress(row.id, "orbit", 1, { timeOrbitMs });
+      store.setStatus(row.id, "done");
+      appendAnalysisHistory(db, {
+        id: randomUUID(),
+        trackId: row.track_id,
+        aspects: allAspects,
+        status: "done",
+        timeBitrateMs,
+        timeOrbitMs,
+        timeTotalMs: (timeBitrateMs ?? 0) + timeOrbitMs,
+      });
+    } catch (err) {
+      bunLog("ANALYSIS", `orbit error: ${trackName} — ${err}`);
+      store.setStatus(row.id, "failed", String(err));
+      writeAnalyzedValues(db, row.track_id, { analysisStatus: "failed" });
+      appendAnalysisHistory(db, {
+        id: randomUUID(),
+        trackId: row.track_id,
+        aspects: allAspects,
+        status: "failed",
+        timeBitrateMs,
+      });
+    }
+
+    schedulePush(store);
+    return null;
+  }
+
+  // ── Essentia engine: decode PCM → renderer worker ────────────────────────
 
   // If bitrate was the only requested aspect, complete here without a renderer claim
   const rendererAspects = allAspects.filter((a) => a !== "bitrate");
@@ -193,9 +286,12 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
   }
 
   try {
+    const t0 = Date.now();
     const decoded = await decodeAudio(fileRow.file_path, 44100);
+    bunLog("ANALYSIS", `decode: ${trackName} (${Date.now() - t0}ms)`);
     pcmCache.set(row.id, decoded.buffer);
   } catch (err) {
+    bunLog("ANALYSIS", `decode error: ${trackName} — ${err}`);
     store.setStatus(row.id, "failed", String(err));
     schedulePush(store);
     return null;
@@ -234,6 +330,7 @@ export function reportResult(db: Database, result: AnalysisResult): void {
   if (!row) return;
 
   if (result.success) {
+    bunLog("ANALYSIS", `done: trackId=${row.track_id} timings=${JSON.stringify(result.timings)}`);
     writeAnalyzedValues(db, row.track_id, {
       analyzedBpm: result.analyzedBpm ?? null,
       analyzedKey: result.analyzedKey ?? null,
@@ -242,6 +339,7 @@ export function reportResult(db: Database, result: AnalysisResult): void {
     });
     store.setStatus(result.itemId, "done");
   } else {
+    bunLog("ANALYSIS", `failed: trackId=${row.track_id} error=${result.error}`);
     writeAnalyzedValues(db, row.track_id, {
       analysisStatus: "failed",
     });

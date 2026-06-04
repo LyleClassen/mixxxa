@@ -71,7 +71,7 @@ Electrobun produces a per-platform bundle under
 - `Resources/app/views/mainview/` — Vite build output (only used when
   HMR is off).
 
-## Audio analysis assets (track-analysis-essentia)
+## Audio analysis assets
 
 ### 1. `ffmpeg` binary
 
@@ -84,13 +84,42 @@ node_modules/ffmpeg-static/ffmpeg      (Mac/Linux)
 
 **Electrobun bundling caveat:** The Bun bundler inlines `ffmpeg-static`'s path string, but does NOT copy the binary into the app bundle. When building for distribution (`bun run build:canary`) you must arrange to ship the binary alongside the bundle (e.g., copy to `Resources/app/bun/ffmpeg.exe`) and adjust the path resolution in `decoder.ts`. During development (`bun run dev:hmr`) the path in `node_modules/` works as-is.
 
-### 2. Analysis scope: Key + BPM only
+### 2. Analysis engines
 
-Track analysis computes **only Key and BPM**, both via Essentia.js (WASM) in the
-renderer worker (`src/mainview/analysis/analysisWorker.ts` — `KeyExtractor` +
-`RhythmExtractor2013`). Audio is decoded to 44.1 kHz mono PCM in Bun (`decoder.ts`,
-ffmpeg) and served to the worker over `GET /pcm/{itemId}`. There is **no Python
-sidecar, ONNX, or ML model** in the pipeline — genre/mood/arousal were removed.
+Two analysis engines are selectable in Settings:
+
+**Essentia (default):** Key + BPM via Essentia.js (WASM) in renderer workers.
+Audio decoded to 44.1 kHz mono PCM in Bun and served over `GET /pcm/{itemId}`.
+
+**ORBIT (Python/librosa):** Runs entirely Bun-side via a Python sidecar process.
+Produces Key, BPM, Energy, Loudness (dBFS), Dynamic Range, and Danceability in
+one `analyzeOrbit()` call — structurally identical to the bitrate ffprobe path
+(completes without ever claiming a renderer worker). Key + mode from ORBIT are
+normalized to Camelot notation via the shared `src/shared/camelot.ts` map.
+
+### 3. ORBIT Python sidecar
+
+Location: `sidecar/` (uv project, `orbit-dsp==1.0.1`).
+
+**Dev workflow:**
+1. `bun run setup:python` — installs the Python venv via `uv sync`.
+2. Sidecar auto-starts on first ORBIT analysis request (`src/bun/analysis/sidecar.ts`).
+   Process is kept warm between requests (librosa startup ~2s paid once).
+3. Manual test: pipe `{"id":"1","filePath":"<some.mp3>","maxLength":120}\n`
+   to `uv run python sidecar/main.py` and confirm one id-correlated JSON result.
+
+**Build for distribution:**
+1. `bun run build:sidecar` — runs PyInstaller via `sidecar/build.spec`.
+   Output: `sidecar/dist/orbit-sidecar[.exe]` (~200–400 MB).
+2. Copy the exe to `Resources/app/bun/orbit-sidecar[.exe]` before packaging.
+   `sidecar.ts` checks for the exe next to the bundle; falls back to `uv run` in dev.
+
+**Windows note:** Windows wheels exist for librosa/numpy/scipy (unlike essentia),
+so the frozen binary is viable on Windows.
+
+**PyInstaller note:** `sidecar/build.spec` uses `collect_all()` for librosa, numba,
+sklearn, and scipy to capture data files that PyInstaller misses otherwise.
+Test the frozen exe standalone before wiring into the full app build.
 
 ## Gotchas
 

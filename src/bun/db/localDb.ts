@@ -13,20 +13,25 @@ const CONTENT_ANALYSIS_COLUMNS = [
   "analyzed_bpm REAL",
   "analyzed_key TEXT",
   "analyzed_bitrate INTEGER",
+  "analyzed_energy REAL",
+  "analyzed_loudness_db REAL",
+  "analyzed_dynamic_range_db REAL",
+  "analyzed_danceability REAL",
   "analysis_status TEXT",
   "analyzed_at INTEGER",
   "time_decode_ms INTEGER",
   "time_key_ms INTEGER",
   "time_bpm_ms INTEGER",
   "time_bitrate_ms INTEGER",
+  "time_orbit_ms INTEGER",
   "time_total_ms INTEGER",
 ];
 
 // Columns from the removed genre/mood/arousal analysis aspects. Dropped from any
-// existing DB so the schema matches the Key/BPM-only feature set.
+// existing DB so the schema stays tidy. analyzed_energy is intentionally absent
+// here — it was dropped previously but is now re-added for the ORBIT engine.
 const REMOVED_ANALYSIS_COLUMNS: Record<string, string[]> = {
   content: [
-    "analyzed_energy",
     "analyzed_valence",
     "analyzed_genre",
     "analyzed_genre_confidence",
@@ -69,13 +74,16 @@ export function getDb(dataDir: string): Database {
     }
   }
 
-  // Idempotent migration: add time_bitrate_ms to analysis_queue and analysis_history
+  // Idempotent migration: add time_bitrate_ms and time_orbit_ms to queue/history
   for (const table of ["analysis_queue", "analysis_history"]) {
     const present = new Set(
       db.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all().map((c) => c.name),
     );
     if (!present.has("time_bitrate_ms")) {
       db.exec(`ALTER TABLE ${table} ADD COLUMN time_bitrate_ms INTEGER`);
+    }
+    if (!present.has("time_orbit_ms")) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN time_orbit_ms INTEGER`);
     }
   }
 
@@ -128,6 +136,10 @@ type ContentRow = {
   analyzed_bpm: number | null;
   analyzed_key: string | null;
   analyzed_bitrate: number | null;
+  analyzed_energy: number | null;
+  analyzed_loudness_db: number | null;
+  analyzed_dynamic_range_db: number | null;
+  analyzed_danceability: number | null;
   analysis_status: string | null;
 };
 
@@ -164,6 +176,10 @@ function rowToTrack(row: ContentRow): Track {
     filePath: row.file_path ?? null,
     analyzedBpm,
     analyzedKey,
+    analyzedEnergy: row.analyzed_energy ?? null,
+    analyzedLoudnessDb: row.analyzed_loudness_db ?? null,
+    analyzedDynamicRangeDb: row.analyzed_dynamic_range_db ?? null,
+    analyzedDanceability: row.analyzed_danceability ?? null,
     analysisStatus: (row.analysis_status as Track["analysisStatus"]) ?? null,
     bpmDiffers,
     keyDiffers,
@@ -184,6 +200,10 @@ const TRACK_SELECT = `
   c.analyzed_bpm,
   c.analyzed_key,
   c.analyzed_bitrate,
+  c.analyzed_energy,
+  c.analyzed_loudness_db,
+  c.analyzed_dynamic_range_db,
+  c.analyzed_danceability,
   c.analysis_status
 `;
 
@@ -216,33 +236,51 @@ export function readAllTracks(database: Database): Track[] {
 export interface AnalyzedValues {
   analyzedBpm?: number | null;
   analyzedKey?: string | null;
+  analyzedEnergy?: number | null;
+  analyzedLoudnessDb?: number | null;
+  analyzedDynamicRangeDb?: number | null;
+  analyzedDanceability?: number | null;
   analysisStatus: string;
   analyzedAt?: number;
   timeDecodeMs?: number | null;
   timeKeyMs?: number | null;
   timeBpmMs?: number | null;
+  timeOrbitMs?: number | null;
   timeTotalMs?: number | null;
 }
 
+// COALESCE(?, col) means: use the provided value if non-null, else keep the
+// current column value. This lets Essentia and ORBIT writes coexist — each
+// engine only overwrites the columns it actually computes.
 export function writeAnalyzedValues(database: Database, trackId: string, values: AnalyzedValues): void {
   database.run(
     `UPDATE content SET
-      analyzed_bpm = ?,
-      analyzed_key = ?,
+      analyzed_bpm = COALESCE(?, analyzed_bpm),
+      analyzed_key = COALESCE(?, analyzed_key),
+      analyzed_energy = COALESCE(?, analyzed_energy),
+      analyzed_loudness_db = COALESCE(?, analyzed_loudness_db),
+      analyzed_dynamic_range_db = COALESCE(?, analyzed_dynamic_range_db),
+      analyzed_danceability = COALESCE(?, analyzed_danceability),
       analysis_status = ?,
       analyzed_at = ?,
-      time_decode_ms = ?,
-      time_key_ms = ?,
-      time_bpm_ms = ?,
-      time_total_ms = ?
+      time_decode_ms = COALESCE(?, time_decode_ms),
+      time_key_ms = COALESCE(?, time_key_ms),
+      time_bpm_ms = COALESCE(?, time_bpm_ms),
+      time_orbit_ms = COALESCE(?, time_orbit_ms),
+      time_total_ms = COALESCE(?, time_total_ms)
     WHERE id = ?`,
     values.analyzedBpm ?? null,
     values.analyzedKey ?? null,
+    values.analyzedEnergy ?? null,
+    values.analyzedLoudnessDb ?? null,
+    values.analyzedDynamicRangeDb ?? null,
+    values.analyzedDanceability ?? null,
     values.analysisStatus,
     values.analyzedAt ?? Date.now(),
     values.timeDecodeMs ?? null,
     values.timeKeyMs ?? null,
     values.timeBpmMs ?? null,
+    values.timeOrbitMs ?? null,
     values.timeTotalMs ?? null,
     trackId,
   );
@@ -257,12 +295,13 @@ export function appendAnalysisHistory(database: Database, entry: {
   timeKeyMs?: number | null;
   timeBpmMs?: number | null;
   timeBitrateMs?: number | null;
+  timeOrbitMs?: number | null;
   timeTotalMs?: number | null;
 }): void {
   database.run(
     `INSERT INTO analysis_history
-      (id, track_id, aspects, status, time_decode_ms, time_key_ms, time_bpm_ms, time_bitrate_ms, time_total_ms, finished_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, track_id, aspects, status, time_decode_ms, time_key_ms, time_bpm_ms, time_bitrate_ms, time_orbit_ms, time_total_ms, finished_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     entry.id,
     entry.trackId,
     JSON.stringify(entry.aspects),
@@ -271,6 +310,7 @@ export function appendAnalysisHistory(database: Database, entry: {
     entry.timeKeyMs ?? null,
     entry.timeBpmMs ?? null,
     entry.timeBitrateMs ?? null,
+    entry.timeOrbitMs ?? null,
     entry.timeTotalMs ?? null,
     Date.now(),
   );
@@ -293,6 +333,7 @@ export function readAnalysisHistory(database: Database): HistoryEntry[] {
     time_key_ms: number | null;
     time_bpm_ms: number | null;
     time_bitrate_ms: number | null;
+    time_orbit_ms: number | null;
     time_total_ms: number | null;
     finished_at: number;
   };
@@ -308,6 +349,7 @@ export function readAnalysisHistory(database: Database): HistoryEntry[] {
     timeKeyMs: r.time_key_ms ?? undefined,
     timeBpmMs: r.time_bpm_ms ?? undefined,
     timeBitrateMs: r.time_bitrate_ms ?? undefined,
+    timeOrbitMs: r.time_orbit_ms ?? undefined,
     timeTotalMs: r.time_total_ms ?? undefined,
     finishedAt: r.finished_at,
   }));

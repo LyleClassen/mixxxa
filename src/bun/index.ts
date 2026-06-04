@@ -1,4 +1,5 @@
 import { BrowserWindow, BrowserView, Utils, Updater } from "electrobun/bun";
+import { join } from "node:path";
 import type { MixxxRPC } from "../shared/types";
 import { rpcHandlers } from "./rpc/index";
 import { initRekordboxHandlers } from "./rpc/rekordbox";
@@ -6,6 +7,8 @@ import { initAnalysisHandlers } from "./rpc/analysis";
 import { closeDb, getDb } from "./db/localDb";
 import { startAudioServer, stopAudioServer } from "./audioServer";
 import { initAnalysis } from "./analysis/index";
+import { loadSettings } from "./analysis/settings";
+import { initBunLog, bunLog } from "./bunLog";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -30,8 +33,13 @@ initRekordboxHandlers(Utils.paths.userData);
 initAnalysisHandlers(Utils.paths.userData);
 startAudioServer(Utils.paths.userData);
 
-// Init analysis queue — queue updates will be pushed to the view once the RPC is ready
 const db = getDb(Utils.paths.userData);
+
+const settings = loadSettings(db);
+// logs/ at the project root (two levels up from src/bun/)
+const logsDir = join(import.meta.dir, "../..", "logs");
+initBunLog(logsDir, settings.maxLogFiles);
+bunLog("BOOT", `mixxxa started — userData=${Utils.paths.userData} logsDir=${logsDir}`);
 
 const rpc = BrowserView.defineRPC<MixxxRPC>({
 	maxRequestTime: Infinity,
@@ -57,6 +65,7 @@ new BrowserWindow({
 });
 
 process.on("exit", () => {
+  bunLog("BOOT", "mixxxa shutting down");
   closeDb();
   stopAudioServer();
 });

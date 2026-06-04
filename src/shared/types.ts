@@ -22,6 +22,10 @@ export interface Track {
   // Analyzed values (null = not yet analyzed)
   analyzedBpm: number | null;
   analyzedKey: string | null;
+  analyzedEnergy: number | null;
+  analyzedLoudnessDb: number | null;
+  analyzedDynamicRangeDb: number | null;
+  analyzedDanceability: number | null;
   analysisStatus: "done" | "failed" | null;
   // Diff flags
   bpmDiffers: boolean;
@@ -32,11 +36,15 @@ export type SyncErrorKind = "not-found" | "unreadable";
 
 // ── Analysis types ────────────────────────────────────────────────────────────
 
-export type AnalysisAspect = "key" | "bpm" | "bitrate";
+export type AnalysisAspect = "key" | "bpm" | "bitrate" | "energy" | "loudness" | "dynamics" | "danceability";
+
+export type AnalysisEngine = "essentia" | "orbit";
 
 export interface AnalysisSettings {
   parallelism: number;
   aspects: AnalysisAspect[];
+  engine: AnalysisEngine;
+  maxLogFiles: number;
 }
 
 export type AnalysisPhase =
@@ -44,6 +52,7 @@ export type AnalysisPhase =
   | "key"
   | "bpm"
   | "bitrate"
+  | "orbit"
   | "persisting";
 
 export type QueueItemStatus = "queued" | "running" | "done" | "failed" | "canceled";
@@ -53,6 +62,7 @@ export interface QueueItemTimings {
   timeKeyMs?: number;
   timeBpmMs?: number;
   timeBitrateMs?: number;
+  timeOrbitMs?: number;
   timeTotalMs?: number;
 }
 

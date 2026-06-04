@@ -6,6 +6,8 @@ const PHASE_LABELS: Record<string, string> = {
   decoding: "Decoding",
   key: "Key",
   bpm: "BPM",
+  bitrate: "Bitrate",
+  orbit: "ORBIT",
   persisting: "Saving",
 };
 

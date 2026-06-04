@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: orbit-sidecar
+Version: 0.1.0
+Requires-Python: >=3.10
+Requires-Dist: orbit-dsp==1.0.1

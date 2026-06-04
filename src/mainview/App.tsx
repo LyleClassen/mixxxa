@@ -142,6 +142,7 @@ function App() {
   const [analysisSettings, setAnalysisSettingsState] = useState<AnalysisSettings>({
     parallelism: 2,
     aspects: ["key", "bpm"],
+    engine: "essentia",
   });
   const [isPaused, setIsPaused] = useState(false);
   const workerPoolInitialized = useRef(false);

@@ -3,11 +3,14 @@
   "version": "1.0.0",
   "description": "Electrobun app with React, Tailwind CSS, and Vite HMR",
   "scripts": {
+    "go": "bun install && uv sync --project sidecar && bun run dev:hmr",
     "start": "vite build && electrobun dev",
     "dev": "electrobun dev --watch",
     "dev:hmr": "concurrently \"bun run hmr\" \"bun run start\"",
     "hmr": "vite --port 5173",
-    "build:canary": "vite build && electrobun build --env=canary",
+    "setup:python": "uv sync --project sidecar",
+    "build:sidecar": "uv run --project sidecar pyinstaller sidecar/build.spec --distpath sidecar/dist --workpath sidecar/build_work",
+    "build:canary": "bun run build:sidecar && vite build && electrobun build --env=canary",
     "sandbox:bitnet": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/bitnet-sandbox.ts"
   },
   "dependencies": {

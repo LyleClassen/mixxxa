@@ -1,5 +1,6 @@
 import { getDb } from "../db/localDb";
 import { loadSettings } from "../analysis/settings";
+import { bunLog } from "../bunLog";
 import {
   getQueue,
   enqueueTrack,
@@ -20,6 +21,7 @@ import {
 import type {
   ProgressReport,
   AnalysisResult,
+  AnalysisSettings,
 } from "../../shared/types";
 
 let dataDir: string;
@@ -32,12 +34,14 @@ export const analysisHandlers = {
   enqueueTrack: async ({ trackId }: { trackId: string }): Promise<void> => {
     const db = getDb(dataDir);
     const settings = loadSettings(db);
+    bunLog("RPC", `enqueueTrack: trackId=${trackId}`);
     enqueueTrack(db, trackId, settings);
   },
 
   enqueuePlaylist: async ({ playlistId }: { playlistId: string }): Promise<void> => {
     const db = getDb(dataDir);
     const settings = loadSettings(db);
+    bunLog("RPC", `enqueuePlaylist: playlistId=${playlistId}`);
     enqueuePlaylist(db, playlistId, settings);
   },
 
@@ -46,14 +50,17 @@ export const analysisHandlers = {
   },
 
   pauseAnalysis: async (): Promise<void> => {
+    bunLog("RPC", "pauseAnalysis");
     pauseAnalysis();
   },
 
   resumeAnalysis: async (): Promise<void> => {
+    bunLog("RPC", "resumeAnalysis");
     resumeAnalysis(getDb(dataDir));
   },
 
   cancelAnalysis: async (): Promise<void> => {
+    bunLog("RPC", "cancelAnalysis");
     cancelAnalysis(getDb(dataDir));
   },
 
@@ -69,8 +76,9 @@ export const analysisHandlers = {
     return getAnalysisSettings(getDb(dataDir));
   },
 
-  setAnalysisSettings: async (patch: { parallelism?: number; aspects?: string[] }) => {
-    return setAnalysisSettings(getDb(dataDir), patch as Parameters<typeof setAnalysisSettings>[1]);
+  setAnalysisSettings: async (patch: Partial<AnalysisSettings>) => {
+    bunLog("RPC", `setAnalysisSettings: ${JSON.stringify(patch)}`);
+    return setAnalysisSettings(getDb(dataDir), patch);
   },
 
   getAnalysisHistory: async () => {
@@ -78,6 +86,7 @@ export const analysisHandlers = {
   },
 
   pruneAnalysisHistory: async (): Promise<void> => {
+    bunLog("RPC", "pruneAnalysisHistory");
     pruneHistory(getDb(dataDir));
   },
 
