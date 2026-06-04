@@ -3,3 +3,6 @@ build/
 dist/
 artifacts/
 *.tsbuildinfo
+
+# Large model weights
+*.gguf
