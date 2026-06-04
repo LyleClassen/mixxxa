@@ -71,9 +71,37 @@ const model = await BitNet.load(MODEL_URL, {
     onProgress: (p) => console.log(`${p.phase}: ${(p.fraction * 100).toFixed(1)}%`),
 });
 
-for await (const token of model.generate("What makes a good drum and bass dj playlist?")) {
+// Condensed Camelot Wheel pathfinding protocol. The full markdown spec
+// (src/models/protocols/camelot-wheel.md) is ~785 tokens, which overruns this
+// little BitNet model's GPU prefill and trips a Windows TDR timeout. This is a
+// token-tight restatement of the same rules so the model can actually prefill it.
+const protocol = `You compute Camelot Wheel DJ key transitions. Keys are 1-12 with mode A (minor) or B (major). Adding/subtracting wraps 1-12 (0->12, -1->11).
+
+Moves from a key (N = number, keep mode unless told to flip):
+- Energy Boost: +1 (small), -3, then +2 or -5 (bigger). For A you may also flip A->B for a boost.
+- Energy Drop: -1, +3, -2 or +5. For B you may also flip B->A for a drop.
+- Mood Change: A->(N+3)B, or B->(N-3)A.
+
+Task: find a path of moves from the Start key to the Target key in exactly the requested number of tracks (Start counts as track 1). List each track's key in order and name the move used for each transition.`;
+
+const messages = [
+    { role: "system" as const, content: protocol },
+    {
+        role: "user" as const,
+        content:
+            "Start: 4A. Target: 12B. Tracks: 5. Keep energy high. " +
+            "List the key of all 5 tracks in order and name each transition.",
+    },
+];
+
+console.log("\n--- PROMPT ---");
+console.log(messages.map((m) => `[${m.role}]\n${m.content}`).join("\n\n"));
+console.log("\n--- RESPONSE ---");
+
+for await (const token of model.generate(messages, { maxTokens: 512, temperature: 0.7, topK: 40, repeatPenalty: 1.3, repeatLastN: 64 })) {
     process.stdout.write(token);
 }
+console.log();
 
 model.dispose();
 
