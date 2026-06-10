@@ -1,7 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
-import { DEFAULT_COLUMNS, DEFAULT_HIDDEN, PREVIOUSLY_DEFAULT_HIDDEN } from "./columns";
+import { useState, useEffect, useMemo } from "react";
+import type {
+  ColumnOrderState,
+  ColumnSizingState,
+  OnChangeFn,
+  VisibilityState,
+} from "@tanstack/react-table";
+import { COLUMN_IDS, DEFAULT_HIDDEN, PREVIOUSLY_DEFAULT_HIDDEN } from "./columns";
 
-// localStorage-backed column order / widths / visibility for TrackTable.
+// localStorage-backed column order / widths / visibility for TrackTable,
+// exposed in TanStack Table state shapes. The stored format predates the
+// TanStack migration ({ order, widths, hidden[] }) and is kept for back-compat.
 
 interface StoredConfig {
   order: string[];
@@ -15,64 +23,58 @@ function loadConfig(storageKey: string): StoredConfig {
     if (raw) return JSON.parse(raw) as StoredConfig;
   } catch {}
   return {
-    order: DEFAULT_COLUMNS.map((c) => c.id),
-    widths: Object.fromEntries(DEFAULT_COLUMNS.map((c) => [c.id, c.defaultWidth])),
+    order: [...COLUMN_IDS],
+    widths: {},
     hidden: Array.from(DEFAULT_HIDDEN),
   };
 }
 
 export function useColumnConfig(storageKey: string) {
-  const [order, setOrder] = useState<string[]>(() => {
+  const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(() => {
     const stored = loadConfig(storageKey);
-    const extra = DEFAULT_COLUMNS.map((c) => c.id).filter((id) => !stored.order.includes(id));
-    return [...stored.order.filter((id) => DEFAULT_COLUMNS.some((c) => c.id === id)), ...extra];
+    const extra = COLUMN_IDS.filter((id) => !stored.order.includes(id));
+    return [...stored.order.filter((id) => COLUMN_IDS.includes(id)), ...extra];
   });
 
-  const [widths, setWidths] = useState<Record<string, number>>(() => {
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(() => {
     const stored = loadConfig(storageKey);
-    const defaults = Object.fromEntries(DEFAULT_COLUMNS.map((c) => [c.id, c.defaultWidth]));
-    return { ...defaults, ...stored.widths };
+    return { ...stored.widths };
   });
 
-  const [hidden, setHidden] = useState<Set<string>>(() => {
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() => {
     const stored = loadConfig(storageKey);
-    const base = new Set(stored.hidden);
+    const hidden = new Set(stored.hidden);
     // Ensure new analysis columns start hidden if not in stored config
     for (const id of DEFAULT_HIDDEN) {
-      if (!stored.order.includes(id)) base.add(id);
+      if (!stored.order.includes(id)) hidden.add(id);
     }
     // Columns removed from DEFAULT_HIDDEN should be auto-shown on next load
     // (treated as a migration rather than a user preference reset)
     for (const id of PREVIOUSLY_DEFAULT_HIDDEN) {
-      if (!DEFAULT_HIDDEN.has(id)) base.delete(id);
+      if (!DEFAULT_HIDDEN.has(id)) hidden.delete(id);
     }
-    return base;
+    return Object.fromEntries(Array.from(hidden, (id) => [id, false]));
   });
 
   useEffect(() => {
     try {
       localStorage.setItem(storageKey, JSON.stringify({
-        order,
-        widths,
-        hidden: Array.from(hidden),
+        order: columnOrder,
+        widths: columnSizing,
+        hidden: Object.keys(columnVisibility).filter((id) => columnVisibility[id] === false),
       }));
     } catch {}
-  }, [storageKey, order, widths, hidden]);
+  }, [storageKey, columnOrder, columnSizing, columnVisibility]);
 
-  const updateOrder = useCallback((newOrder: string[]) => setOrder(newOrder), []);
-
-  const updateWidth = useCallback((id: string, width: number) => {
-    setWidths((prev) => ({ ...prev, [id]: width }));
-  }, []);
-
-  const toggleHidden = useCallback((id: string) => {
-    setHidden((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  return { order, widths, hidden, updateOrder, updateWidth, toggleHidden };
+  return useMemo(
+    () => ({
+      columnOrder,
+      columnSizing,
+      columnVisibility,
+      onColumnOrderChange: setColumnOrder as OnChangeFn<ColumnOrderState>,
+      onColumnSizingChange: setColumnSizing as OnChangeFn<ColumnSizingState>,
+      onColumnVisibilityChange: setColumnVisibility as OnChangeFn<VisibilityState>,
+    }),
+    [columnOrder, columnSizing, columnVisibility],
+  );
 }

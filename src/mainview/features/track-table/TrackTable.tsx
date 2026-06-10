@@ -1,11 +1,15 @@
 import { useState, useRef, useEffect, type CSSProperties } from "react";
+import {
+  useReactTable,
+  getCoreRowModel,
+  flexRender,
+} from "@tanstack/react-table";
 import { GripVertical } from "lucide-react";
 import type { Track } from "../../../shared/types";
-import { DEFAULT_COLUMNS, RIGHT_ALIGNED, CENTER_ALIGNED } from "./columns";
+import { TRACK_COLUMNS } from "./columns";
 import { useColumnConfig } from "./useColumnConfig";
 import { ColumnContextMenu } from "./ColumnContextMenu";
 import { RowContextMenu } from "./RowContextMenu";
-import { renderCell } from "./cells";
 
 export interface TrackTableProps {
   tracks: Track[];
@@ -32,9 +36,25 @@ export function TrackTable({
   searchActive = false,
   onReorder,
 }: TrackTableProps) {
-  const { order, widths, hidden, updateOrder, updateWidth, toggleHidden } = useColumnConfig(storageKey);
+  const columnConfig = useColumnConfig(storageKey);
 
-  const resizeRef = useRef<{ colId: string; startX: number; startWidth: number } | null>(null);
+  const table = useReactTable({
+    data: tracks,
+    columns: TRACK_COLUMNS,
+    getCoreRowModel: getCoreRowModel(),
+    getRowId: (track) => track.id,
+    state: {
+      columnOrder: columnConfig.columnOrder,
+      columnSizing: columnConfig.columnSizing,
+      columnVisibility: columnConfig.columnVisibility,
+    },
+    onColumnOrderChange: columnConfig.onColumnOrderChange,
+    onColumnSizingChange: columnConfig.onColumnSizingChange,
+    onColumnVisibilityChange: columnConfig.onColumnVisibilityChange,
+    enableColumnResizing: true,
+    columnResizeMode: "onChange",
+  });
+
   const reorderRef = useRef<{ colId: string; startX: number } | null>(null);
   const [reorderDrag, setReorderDrag] = useState<{ colId: string; dropIndex: number } | null>(null);
 
@@ -63,30 +83,33 @@ export function TrackTable({
     return () => window.removeEventListener("keydown", onKey);
   }, [rowDrag]);
 
-  const visibleCols = order.filter((id) => !hidden.has(id));
-  const colMap = Object.fromEntries(DEFAULT_COLUMNS.map((c) => [c.id, c]));
+  const visibleColumns = table.getVisibleLeafColumns();
 
   function computeDropIndex(clientX: number): number {
     if (!headerRowRef.current) return 0;
     const rect = headerRowRef.current.getBoundingClientRect();
     const relX = clientX - rect.left;
     let cum = 0;
-    for (let i = 0; i < visibleCols.length; i++) {
-      const w = widths[visibleCols[i]] ?? colMap[visibleCols[i]]?.defaultWidth ?? 100;
+    for (let i = 0; i < visibleColumns.length; i++) {
+      const w = visibleColumns[i].getSize();
       if (relX < cum + w / 2) return i;
       cum += w;
     }
-    return visibleCols.length;
+    return visibleColumns.length;
   }
 
   function commitReorder(dragColId: string, dropIndex: number) {
-    const fromIndex = visibleCols.indexOf(dragColId);
+    const visibleIds = visibleColumns.map((c) => c.id);
+    const fromIndex = visibleIds.indexOf(dragColId);
     if (fromIndex === -1) return;
-    const newVisible = [...visibleCols];
+    const newVisible = [...visibleIds];
     newVisible.splice(fromIndex, 1);
     const adjustedDrop = dropIndex > fromIndex ? dropIndex - 1 : dropIndex;
     newVisible.splice(adjustedDrop, 0, dragColId);
-    const hiddenInOrder = order.filter((id) => hidden.has(id));
+    // Re-insert hidden columns after their nearest preceding neighbor so they
+    // keep their relative position in the full order.
+    const order = columnConfig.columnOrder;
+    const hiddenInOrder = order.filter((id) => columnConfig.columnVisibility[id] === false);
     const newOrder = [...newVisible];
     for (const hiddenId of hiddenInOrder) {
       const origIdx = order.indexOf(hiddenId);
@@ -98,7 +121,7 @@ export function TrackTable({
       }
       newOrder.splice(insertAt, 0, hiddenId);
     }
-    updateOrder(newOrder);
+    table.setColumnOrder(newOrder);
   }
 
   // Vertical insertion index (0..tracks.length) from a pointer Y position, using
@@ -126,15 +149,14 @@ export function TrackTable({
   }
 
   const dropIndicatorIndex = reorderDrag?.dropIndex ?? null;
+  const rows = table.getRowModel().rows;
 
   return (
     <div className="relative w-full h-full overflow-auto">
       {headerMenuPos && (
         <ColumnContextMenu
           pos={headerMenuPos}
-          columns={DEFAULT_COLUMNS}
-          hidden={hidden}
-          onToggle={toggleHidden}
+          columns={table.getAllLeafColumns()}
           onClose={() => setHeaderMenuPos(null)}
         />
       )}
@@ -155,111 +177,104 @@ export function TrackTable({
       >
         <colgroup>
           {canReorder && <col style={{ width: 32 }} />}
-          {visibleCols.map((id) => (
-            <col key={id} style={{ width: widths[id] ?? colMap[id]?.defaultWidth ?? 100 }} />
+          {visibleColumns.map((column) => (
+            <col key={column.id} style={{ width: column.getSize() }} />
           ))}
         </colgroup>
 
         <thead className="sticky top-0 bg-background z-10 shadow-sm border-b border-border">
-          <tr
-            ref={headerRowRef}
-            className="text-muted-foreground text-xs font-bold uppercase tracking-wider select-none"
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setHeaderMenuPos({ x: e.clientX, y: e.clientY });
-            }}
-          >
-            {canReorder && <th className="px-1" aria-hidden />}
-            {visibleCols.map((id, colIdx) => {
-              const col = colMap[id];
-              const isDragging = reorderDrag?.colId === id;
-              const showDropBefore = dropIndicatorIndex === colIdx;
-              const showDropAfter = dropIndicatorIndex === visibleCols.length && colIdx === visibleCols.length - 1;
+          {table.getHeaderGroups().map((headerGroup) => (
+            <tr
+              key={headerGroup.id}
+              ref={headerRowRef}
+              className="text-muted-foreground text-xs font-bold uppercase tracking-wider select-none"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setHeaderMenuPos({ x: e.clientX, y: e.clientY });
+              }}
+            >
+              {canReorder && <th className="px-1" aria-hidden />}
+              {headerGroup.headers.map((header, colIdx) => {
+                const colId = header.column.id;
+                const isDragging = reorderDrag?.colId === colId;
+                const showDropBefore = dropIndicatorIndex === colIdx;
+                const showDropAfter = dropIndicatorIndex === visibleColumns.length && colIdx === visibleColumns.length - 1;
 
-              return (
-                <th
-                  key={id}
-                  className={`relative px-3 py-4 font-medium overflow-hidden ${isDragging ? "opacity-40 outline outline-1 outline-primary" : ""}`}
-                  style={{ position: "relative" }}
-                  onPointerDown={(e) => {
-                    if (e.button !== 0) return;
-                    e.currentTarget.setPointerCapture(e.pointerId);
-                    reorderRef.current = { colId: id, startX: e.clientX };
-                    setReorderDrag({ colId: id, dropIndex: colIdx });
-                  }}
-                  onPointerMove={(e) => {
-                    if (!reorderRef.current || reorderRef.current.colId !== id) return;
-                    const drop = computeDropIndex(e.clientX);
-                    setReorderDrag({ colId: id, dropIndex: drop });
-                  }}
-                  onPointerUp={(e) => {
-                    if (!reorderRef.current || reorderRef.current.colId !== id) return;
-                    const drop = computeDropIndex(e.clientX);
-                    commitReorder(id, drop);
-                    reorderRef.current = null;
-                    setReorderDrag(null);
-                  }}
-                  onPointerCancel={() => {
-                    if (reorderRef.current?.colId !== id) return;
-                    reorderRef.current = null;
-                    setReorderDrag(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape" && reorderRef.current?.colId === id) {
-                      reorderRef.current = null;
-                      setReorderDrag(null);
-                    }
-                  }}
-                >
-                  {showDropBefore && (
-                    <span
-                      className="absolute left-0 top-0 h-full w-0.5 bg-primary z-20"
-                      style={{ pointerEvents: "none" }}
-                    />
-                  )}
-                  {showDropAfter && (
-                    <span
-                      className="absolute right-0 top-0 h-full w-0.5 bg-primary z-20"
-                      style={{ pointerEvents: "none" }}
-                    />
-                  )}
-
-                  <span className="truncate block pr-2">{col?.label ?? id}</span>
-
-                  <span
-                    className="absolute right-0 top-0 h-full w-2 cursor-col-resize z-10"
-                    style={{ touchAction: "none" }}
+                return (
+                  <th
+                    key={header.id}
+                    className={`relative px-3 py-4 font-medium overflow-hidden ${isDragging ? "opacity-40 outline outline-1 outline-primary" : ""}`}
+                    style={{ position: "relative" }}
                     onPointerDown={(e) => {
-                      e.stopPropagation();
+                      if (e.button !== 0) return;
                       e.currentTarget.setPointerCapture(e.pointerId);
-                      resizeRef.current = {
-                        colId: id,
-                        startX: e.clientX,
-                        startWidth: widths[id] ?? col?.defaultWidth ?? 100,
-                      };
+                      reorderRef.current = { colId, startX: e.clientX };
+                      setReorderDrag({ colId, dropIndex: colIdx });
                     }}
                     onPointerMove={(e) => {
-                      if (!resizeRef.current || resizeRef.current.colId !== id) return;
-                      const delta = e.clientX - resizeRef.current.startX;
-                      const minW = col?.minWidth ?? 40;
-                      const newWidth = Math.max(minW, resizeRef.current.startWidth + delta);
-                      updateWidth(id, newWidth);
+                      if (!reorderRef.current || reorderRef.current.colId !== colId) return;
+                      const drop = computeDropIndex(e.clientX);
+                      setReorderDrag({ colId, dropIndex: drop });
                     }}
-                    onPointerUp={() => { resizeRef.current = null; }}
-                    onPointerCancel={() => { resizeRef.current = null; }}
-                  />
-                </th>
-              );
-            })}
-          </tr>
+                    onPointerUp={(e) => {
+                      if (!reorderRef.current || reorderRef.current.colId !== colId) return;
+                      const drop = computeDropIndex(e.clientX);
+                      commitReorder(colId, drop);
+                      reorderRef.current = null;
+                      setReorderDrag(null);
+                    }}
+                    onPointerCancel={() => {
+                      if (reorderRef.current?.colId !== colId) return;
+                      reorderRef.current = null;
+                      setReorderDrag(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape" && reorderRef.current?.colId === colId) {
+                        reorderRef.current = null;
+                        setReorderDrag(null);
+                      }
+                    }}
+                  >
+                    {showDropBefore && (
+                      <span
+                        className="absolute left-0 top-0 h-full w-0.5 bg-primary z-20"
+                        style={{ pointerEvents: "none" }}
+                      />
+                    )}
+                    {showDropAfter && (
+                      <span
+                        className="absolute right-0 top-0 h-full w-0.5 bg-primary z-20"
+                        style={{ pointerEvents: "none" }}
+                      />
+                    )}
+
+                    <span className="truncate block pr-2">
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
+                    </span>
+
+                    <span
+                      className="absolute right-0 top-0 h-full w-2 cursor-col-resize z-10"
+                      style={{ touchAction: "none" }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onMouseDown={header.getResizeHandler()}
+                      onTouchStart={header.getResizeHandler()}
+                    />
+                  </th>
+                );
+              })}
+            </tr>
+          ))}
         </thead>
 
         <tbody ref={tbodyRef} className="divide-y divide-border/50">
-          {tracks.map((track, rowIdx) => {
+          {rows.map((row, rowIdx) => {
+            const track = row.original;
             const isRowDragging = rowDrag?.trackId === track.id;
             const showDropBefore = rowDrag != null && rowDrag.dropIndex === rowIdx;
             const showDropAfter =
-              rowDrag != null && rowDrag.dropIndex === tracks.length && rowIdx === tracks.length - 1;
+              rowDrag != null && rowDrag.dropIndex === rows.length && rowIdx === rows.length - 1;
             const dropStyle: CSSProperties | undefined = showDropBefore
               ? { boxShadow: "inset 0 2px 0 0 var(--color-primary)" }
               : showDropAfter
@@ -268,7 +283,7 @@ export function TrackTable({
 
             return (
               <tr
-                key={track.id}
+                key={row.id}
                 onDoubleClick={() => onTrackDoubleClick(track)}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -312,16 +327,15 @@ export function TrackTable({
                     </span>
                   </td>
                 )}
-                {visibleCols.map((id) => {
-                  const isRight = RIGHT_ALIGNED.has(id);
-                  const isCenter = CENTER_ALIGNED.has(id);
+                {row.getVisibleCells().map((cell) => {
+                  const align = cell.column.columnDef.meta?.align;
                   return (
                     <td
-                      key={id}
-                      className={`px-3 py-2.5 overflow-hidden ${isCenter ? "text-center" : isRight ? "text-right" : ""}`}
+                      key={cell.id}
+                      className={`px-3 py-2.5 overflow-hidden ${align === "center" ? "text-center" : align === "right" ? "text-right" : ""}`}
                       style={dropStyle}
                     >
-                      {renderCell(id, track, rowIdx)}
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   );
                 })}
