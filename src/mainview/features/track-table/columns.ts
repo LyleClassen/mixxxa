@@ -11,7 +11,7 @@ export interface ColumnDef {
 
 export const DEFAULT_COLUMNS: ColumnDef[] = [
   { id: "index", label: "#", defaultWidth: 25, minWidth: 25, alwaysVisible: false },
-  { id: "cover", label: "Cover Art", defaultWidth: 65, minWidth: 40, alwaysVisible: false },
+  { id: "cover", label: "Art", defaultWidth: 65, minWidth: 40, alwaysVisible: false },
   { id: "artist", label: "Artist", defaultWidth: 160, minWidth: 40, alwaysVisible: false },
   { id: "title", label: "Title", defaultWidth: 200, minWidth: 40, alwaysVisible: true },
   { id: "album", label: "Album", defaultWidth: 160, minWidth: 40, alwaysVisible: false },
@@ -40,7 +40,6 @@ export const PREVIOUSLY_DEFAULT_HIDDEN = ["analyzed_energy"];
 
 // Right-aligned numeric/metric columns (mirrors the classic table).
 export const RIGHT_ALIGNED = new Set<string>([
-
   "bpm",
   "length",
   "bitrate",
