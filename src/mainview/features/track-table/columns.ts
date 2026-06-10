@@ -1,5 +1,5 @@
-// Shared column metadata for both the classic TrackTable and the MRT-based
-// MaterialTrackTable. Single source of truth so the two stay aligned.
+// Column metadata for TrackTable. Single source of truth for column order,
+// widths, labels, default visibility, and alignment.
 
 export interface ColumnDef {
   id: string;
@@ -10,6 +10,7 @@ export interface ColumnDef {
 }
 
 export const DEFAULT_COLUMNS: ColumnDef[] = [
+  { id: "index",                   label: "#",                defaultWidth: 50,  minWidth: 36, alwaysVisible: false },
   { id: "cover",                   label: "Cover Art",        defaultWidth: 80,  minWidth: 40, alwaysVisible: false },
   { id: "artist",                  label: "Artist",           defaultWidth: 160, minWidth: 40, alwaysVisible: false },
   { id: "title",                   label: "Title",            defaultWidth: 200, minWidth: 40, alwaysVisible: true  },
@@ -39,6 +40,7 @@ export const PREVIOUSLY_DEFAULT_HIDDEN = ["analyzed_energy"];
 
 // Right-aligned numeric/metric columns (mirrors the classic table).
 export const RIGHT_ALIGNED = new Set<string>([
+  "index",
   "bpm",
   "length",
   "bitrate",

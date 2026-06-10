@@ -2,8 +2,7 @@ import { useRef } from "react";
 import { useDismissable } from "../../hooks/useDismissable";
 import type { ColumnDef } from "./columns";
 
-// Header right-click menu: toggle column visibility. Shared by the classic
-// TrackTable and (for right-click parity) the MRT-based MaterialTrackTable.
+// Header right-click menu: toggle column visibility for TrackTable.
 
 interface ColumnContextMenuProps {
   pos: { x: number; y: number };

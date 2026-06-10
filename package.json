@@ -16,10 +16,6 @@
   "dependencies": {
     "0xbitnet": "^0.5.2",
     "@base-ui-components/react": "^1.0.0-rc.0",
-    "@emotion/react": "^11.14.0",
-    "@emotion/styled": "^11.14.1",
-    "@mui/icons-material": "^9.1.0",
-    "@mui/material": "^9.1.0",
     "@types/ffprobe-static": "^2.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -28,7 +24,6 @@
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
     "lucide-react": "^1.17.0",
-    "material-react-table": "^3.2.1",
     "rbox-js": "^0.1.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

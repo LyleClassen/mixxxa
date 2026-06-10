@@ -96,6 +96,7 @@ export type MixxxRPC = {
       getPlaylistTree: { params: undefined; response: PlaylistNode[] };
       getPlaylistTracks: { params: { playlistId: string }; response: Track[] };
       getAllTracks: { params: undefined; response: Track[] };
+      reorderPlaylistTracks: { params: { playlistId: string; orderedTrackIds: string[] }; response: Track[] };
       getTrackAudioUrl: { params: { trackId: string }; response: string | null };
       // Analysis — queue management
       enqueueTrack: { params: { trackId: string }; response: void };

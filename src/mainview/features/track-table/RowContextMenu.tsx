@@ -2,8 +2,7 @@ import { useRef } from "react";
 import { useDismissable } from "../../hooks/useDismissable";
 import type { Track } from "../../../shared/types";
 
-// Track row right-click menu: Analyze track / Analyze playlist. Shared by the
-// classic TrackTable and the MRT-based MaterialTrackTable.
+// Track row right-click menu: Analyze track / Analyze playlist for TrackTable.
 
 interface RowContextMenuProps {
   pos: { x: number; y: number };

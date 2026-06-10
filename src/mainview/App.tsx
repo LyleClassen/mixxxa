@@ -2,11 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings } from "../shared/types";
 import { electroview } from "./rpc";
 import { WaveformPlayer } from "./features/player/WaveformPlayer";
-import {
-  TrackTableSwitch,
-  TrackTableModeToggle,
-  useTrackTableMode,
-} from "./features/track-table";
+import { TrackTable } from "./features/track-table";
 import { AnalysisPanel } from "./features/analysis/AnalysisPanel";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { PlaylistTreeNode } from "./features/sidebar/PlaylistTreeNode";
@@ -46,7 +42,6 @@ function App() {
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [syncError, setSyncError] = useState<SyncErrorKind | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [tableMode, setTableMode] = useTrackTableMode();
 
   // Analysis state
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -177,6 +172,25 @@ function App() {
     setSearchQuery("");
     localStorage.setItem(SELECTED_PLAYLIST_KEY, playlistId);
   }, []);
+
+  // Persist a reordered playlist sequence. Optimistically reorder local state,
+  // then write through the RPC; on failure, reload the authoritative order.
+  const handleReorder = useCallback(async (orderedTrackIds: string[]) => {
+    if (selectedPlaylistId === COLLECTION_ID) return;
+    const playlistId = selectedPlaylistId;
+    setTracks((prev) => {
+      const byId = new Map(prev.map((t) => [t.id, t]));
+      return orderedTrackIds.map((id) => byId.get(id)).filter((t): t is Track => t != null);
+    });
+    try {
+      await electroview.rpc!.request.reorderPlaylistTracks({ playlistId, orderedTrackIds });
+    } catch {
+      try {
+        const fresh = await electroview.rpc!.request.getPlaylistTracks({ playlistId });
+        setTracks(fresh);
+      } catch {}
+    }
+  }, [selectedPlaylistId]);
 
   function syncErrorMessage(): string {
     if (syncError === "not-found") {
@@ -449,11 +463,8 @@ function App() {
                     className="w-full bg-muted/50 border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all placeholder:text-muted-foreground/70"
                   />
                 </div>
-                <div className="flex items-center gap-4">
-                  <TrackTableModeToggle mode={tableMode} onChange={setTableMode} />
-                  <div className="text-sm font-medium text-muted-foreground">
-                    {filteredTracks.length} TRACKS
-                  </div>
+                <div className="text-sm font-medium text-muted-foreground">
+                  {filteredTracks.length} TRACKS
                 </div>
               </div>
 
@@ -477,14 +488,16 @@ function App() {
                       : "Sync your Rekordbox library to get started."}
                   </div>
                 ) : (
-                  <TrackTableSwitch
-                    mode={tableMode}
+                  <TrackTable
                     tracks={filteredTracks}
                     onTrackDoubleClick={setLoadedTrack}
                     onAnalyzeTrack={handleAnalyzeTrack}
                     onAnalyzePlaylist={handleAnalyzePlaylist}
                     storageKey="mixxxa.trackTableColumns"
                     currentPlaylistId={selectedPlaylistId === COLLECTION_ID ? null : selectedPlaylistId}
+                    reorderable={selectedPlaylistId !== COLLECTION_ID}
+                    searchActive={debouncedSearch.trim().length > 0}
+                    onReorder={handleReorder}
                   />
                 )}
               </div>

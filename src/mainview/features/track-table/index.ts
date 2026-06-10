@@ -1,9 +1,4 @@
-// Public API of the track-table feature. App renders the switch + toggle and
-// reads the persisted mode; the individual table implementations and column
-// metadata are internal details imported directly by sibling modules.
-export {
-  TrackTableSwitch,
-  TrackTableModeToggle,
-  useTrackTableMode,
-  type TrackTableMode,
-} from "./TrackTableSwitch";
+// Public API of the track-table feature. App imports and renders TrackTable
+// directly; column metadata and helpers are internal details imported by sibling
+// modules.
+export { TrackTable, type TrackTableProps } from "./TrackTable";

@@ -2,11 +2,12 @@ import type { ReactNode } from "react";
 import type { Track } from "../../../shared/types";
 import { Music2 } from "lucide-react";
 
-// Shared cell renderers keyed by column id. Both the classic TrackTable and the
-// MRT-based MaterialTrackTable call renderCell so the two stay visually identical.
+// Cell renderers keyed by column id. TrackTable calls renderCell for each cell.
 
-export function renderCell(colId: string, track: Track): ReactNode {
+export function renderCell(colId: string, track: Track, rowIndex: number): ReactNode {
   switch (colId) {
+    case "index":
+      return <span className="font-mono text-muted-foreground">{rowIndex + 1}</span>;
     case "cover":
       return (
         <div className="w-12 h-8 rounded-sm bg-muted shadow-sm border border-border/50 flex items-center justify-center">

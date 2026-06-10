@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import type { PlaylistNode, Track, SyncErrorKind } from "../../shared/types";
-import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks, readAllTracks } from "../db/localDb";
+import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks, readAllTracks, reorderPlaylistTracks } from "../db/localDb";
 import { getAudioServerPort } from "../audioServer";
 
 let dataDir: string;
@@ -137,6 +137,12 @@ export const rekordboxHandlers = {
   getAllTracks: async (): Promise<Track[]> => {
     const db = getDb(dataDir);
     return readAllTracks(db);
+  },
+
+  reorderPlaylistTracks: async ({ playlistId, orderedTrackIds }: { playlistId: string; orderedTrackIds: string[] }): Promise<Track[]> => {
+    const db = getDb(dataDir);
+    reorderPlaylistTracks(db, playlistId, orderedTrackIds);
+    return readPlaylistTracks(db, playlistId);
   },
 
   getTrackAudioUrl: async ({ trackId }: { trackId: string }): Promise<string | null> => {

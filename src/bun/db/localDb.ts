@@ -231,6 +231,25 @@ export function readAllTracks(database: Database): Track[] {
   return rows.map(rowToTrack);
 }
 
+// Rewrite playlist_song.seq for a playlist so each content_id gets its index in
+// orderedTrackIds (0..n-1). Single transaction; idempotent. Only affects rows
+// already in the playlist — unknown ids are ignored, missing ones left untouched.
+export function reorderPlaylistTracks(
+  database: Database,
+  playlistId: string,
+  orderedTrackIds: string[],
+): void {
+  const update = database.prepare(
+    "UPDATE playlist_song SET seq = ? WHERE playlist_id = ? AND content_id = ?",
+  );
+  const tx = database.transaction(() => {
+    orderedTrackIds.forEach((contentId, index) => {
+      update.run(index, playlistId, contentId);
+    });
+  });
+  tx();
+}
+
 // ── Analysis write helpers ────────────────────────────────────────────────────
 
 export interface AnalyzedValues {

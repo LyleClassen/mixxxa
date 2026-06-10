@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { DEFAULT_COLUMNS, DEFAULT_HIDDEN, PREVIOUSLY_DEFAULT_HIDDEN } from "./columns";
 
-// localStorage-backed column order / widths / visibility for the classic
-// TrackTable. (MaterialTrackTable persists MRT's own state under a separate key.)
+// localStorage-backed column order / widths / visibility for TrackTable.
 
 interface StoredConfig {
   order: string[];
