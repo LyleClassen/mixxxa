@@ -12,6 +12,12 @@
       "sourceType": "github",
       "skillPath": "fallow/skills/fallow/SKILL.md",
       "computedHash": "dd0c88c06654d3c1ed9f3d7dec96e097e023732fe0154ff4df62b0060643cf68"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-best-practices/SKILL.md",
+      "computedHash": "ca7b0c0c6e5f2750043f7f0cd72d16ac4e2abc48f9b5500d047a4b77a2506212"
     }
   }
 }
