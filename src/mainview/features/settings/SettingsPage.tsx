@@ -1,4 +1,4 @@
-import type { AnalysisSettings, AnalysisAspect, AnalysisEngine } from "../shared/types";
+import type { AnalysisSettings, AnalysisAspect, AnalysisEngine } from "../../../shared/types";
 
 interface AspectDef {
   id: AnalysisAspect;

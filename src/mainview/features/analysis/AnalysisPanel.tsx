@@ -1,4 +1,4 @@
-import type { QueueItem, HistoryEntry } from "../shared/types";
+import type { QueueItem, HistoryEntry } from "../../../shared/types";
 
 // ── Phase labels ──────────────────────────────────────────────────────────────
 

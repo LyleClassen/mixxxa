@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import { Play, Pause, Volume2 } from "lucide-react";
-import type { Track } from "../shared/types";
-import { electroview } from "./rpc";
+import type { Track } from "../../../shared/types";
+import { electroview } from "../../rpc";
 
 const VOLUME_KEY = "mixxxa.volume";
 

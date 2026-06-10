@@ -1,10 +1,15 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings } from "../shared/types";
 import { electroview } from "./rpc";
-import { WaveformPlayer } from "./WaveformPlayer";
-import { TrackTable } from "./TrackTable";
-import { AnalysisPanel } from "./AnalysisPanel";
-import { SettingsPage } from "./SettingsPage";
+import { WaveformPlayer } from "./features/player/WaveformPlayer";
+import {
+  TrackTableSwitch,
+  TrackTableModeToggle,
+  useTrackTableMode,
+} from "./features/track-table";
+import { AnalysisPanel } from "./features/analysis/AnalysisPanel";
+import { SettingsPage } from "./features/settings/SettingsPage";
+import { PlaylistTreeNode } from "./features/sidebar/PlaylistTreeNode";
 import { useDebounce } from "./hooks/useDebounce";
 import { initWorkerPool, setPoolSize } from "./analysis/workerPool";
 
@@ -15,10 +20,6 @@ import {
   Disc3,
   Piano,
   RefreshCw,
-  ChevronRight,
-  ChevronDown,
-  Folder,
-  ListMusic,
   Library,
   ListTodo,
   Settings,
@@ -30,96 +31,6 @@ const SELECTED_PLAYLIST_KEY = "mixxxa.selectedPlaylistId";
 
 type SyncState = "idle" | "loading" | "ready" | "error";
 type RightPanel = "analysis" | "settings" | null;
-
-// ── Playlist tree node with right-click menu ──────────────────────────────────
-
-function PlaylistTreeNode({
-  node,
-  selectedId,
-  onSelect,
-  onAnalyzePlaylist,
-}: {
-  node: PlaylistNode;
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-  onAnalyzePlaylist: (playlistId: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(true);
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!ctxMenu) return;
-    function close(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setCtxMenu(null);
-    }
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [ctxMenu]);
-
-  if (node.isFolder) {
-    return (
-      <div>
-        <button
-          onClick={() => setExpanded((e) => !e)}
-          className="w-full flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 rounded-md cursor-pointer transition-colors"
-        >
-          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          <Folder size={14} />
-          <span className="truncate">{node.name}</span>
-        </button>
-        {expanded && node.children.length > 0 && (
-          <div className="pl-4">
-            {node.children.map((child) => (
-              <PlaylistTreeNode
-                key={child.id}
-                node={child}
-                selectedId={selectedId}
-                onSelect={onSelect}
-                onAnalyzePlaylist={onAnalyzePlaylist}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  const isSelected = node.id === selectedId;
-  return (
-    <div className="relative">
-      <button
-        onClick={() => onSelect(node.id)}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setCtxMenu({ x: e.clientX, y: e.clientY });
-        }}
-        className={`w-full flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors ${
-          isSelected
-            ? "bg-muted/50 text-foreground border-l-2 border-primary"
-            : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-        }`}
-      >
-        <ListMusic size={14} className="shrink-0" />
-        <span className="truncate">{node.name}</span>
-      </button>
-      {ctxMenu && (
-        <div
-          ref={menuRef}
-          style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 1000 }}
-          className="bg-card border border-border rounded-md shadow-lg py-1 min-w-[160px]"
-        >
-          <button
-            onClick={() => { onAnalyzePlaylist(node.id); setCtxMenu(null); }}
-            className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors"
-          >
-            Analyze playlist
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
@@ -135,6 +46,7 @@ function App() {
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [syncError, setSyncError] = useState<SyncErrorKind | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [tableMode, setTableMode] = useTrackTableMode();
 
   // Analysis state
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -260,11 +172,11 @@ function App() {
     }
   }
 
-  function handleSelectPlaylist(playlistId: string) {
+  const handleSelectPlaylist = useCallback((playlistId: string) => {
     setSelectedPlaylistId(playlistId);
     setSearchQuery("");
     localStorage.setItem(SELECTED_PLAYLIST_KEY, playlistId);
-  }
+  }, []);
 
   function syncErrorMessage(): string {
     if (syncError === "not-found") {
@@ -537,8 +449,11 @@ function App() {
                     className="w-full bg-muted/50 border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all placeholder:text-muted-foreground/70"
                   />
                 </div>
-                <div className="text-sm font-medium text-muted-foreground">
-                  {filteredTracks.length} TRACKS
+                <div className="flex items-center gap-4">
+                  <TrackTableModeToggle mode={tableMode} onChange={setTableMode} />
+                  <div className="text-sm font-medium text-muted-foreground">
+                    {filteredTracks.length} TRACKS
+                  </div>
                 </div>
               </div>
 
@@ -562,7 +477,8 @@ function App() {
                       : "Sync your Rekordbox library to get started."}
                   </div>
                 ) : (
-                  <TrackTable
+                  <TrackTableSwitch
+                    mode={tableMode}
                     tracks={filteredTracks}
                     onTrackDoubleClick={setLoadedTrack}
                     onAnalyzeTrack={handleAnalyzeTrack}
