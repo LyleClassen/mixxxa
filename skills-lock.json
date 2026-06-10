@@ -13,6 +13,12 @@
       "skillPath": "fallow/skills/fallow/SKILL.md",
       "computedHash": "dd0c88c06654d3c1ed9f3d7dec96e097e023732fe0154ff4df62b0060643cf68"
     },
+    "tanstack-table": {
+      "source": "tanstack-skills/tanstack-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/tanstack-table/skills/tanstack-table/SKILL.md",
+      "computedHash": "5527e42e541ac26fc1157e49d58c399b95e44eb276ef3caa7576ab138558d593"
+    },
     "vercel-react-best-practices": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",
