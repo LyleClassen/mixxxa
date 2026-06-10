@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Enable users to reorder tracks within playlists and persist those changes to the local library database, while maintaining compatibility with Rekordbox's original ordering.
+
+## ADDED
 
 ### Requirement: Playlist track ordering
 The system SHALL display the tracks of a playlist in the playlist's own sequence, sourced from Rekordbox's per-playlist `trackNo` (`getPlaylistSongs`) and stored as `playlist_song.seq`. Tracks SHALL be read ordered by `seq` ascending. The aggregate "All Tracks"/Collection view, which has no playlist sequence, SHALL retain its existing artist/title ordering.
