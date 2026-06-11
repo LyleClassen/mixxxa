@@ -27,6 +27,9 @@ const CONTENT_ANALYSIS_COLUMNS = [
   "time_bitrate_ms INTEGER",
   "time_orbit_ms INTEGER",
   "time_total_ms INTEGER",
+  "analyzed_first_beat_sec REAL",
+  "waveform_peaks TEXT",
+  "waveform_duration REAL",
 ];
 
 // Columns from the removed genre/mood/arousal analysis aspects. Dropped from any
@@ -264,6 +267,7 @@ export interface AnalyzedValues {
   analyzedLoudnessDb?: number | null;
   analyzedDynamicRangeDb?: number | null;
   analyzedDanceability?: number | null;
+  analyzedFirstBeatSec?: number | null;
   analysisStatus: string;
   analyzedAt?: number;
   timeDecodeMs?: number | null;
@@ -285,6 +289,7 @@ export function writeAnalyzedValues(database: Database, trackId: string, values:
       analyzed_loudness_db = COALESCE(?, analyzed_loudness_db),
       analyzed_dynamic_range_db = COALESCE(?, analyzed_dynamic_range_db),
       analyzed_danceability = COALESCE(?, analyzed_danceability),
+      analyzed_first_beat_sec = COALESCE(?, analyzed_first_beat_sec),
       analysis_status = ?,
       analyzed_at = ?,
       time_decode_ms = COALESCE(?, time_decode_ms),
@@ -299,6 +304,7 @@ export function writeAnalyzedValues(database: Database, trackId: string, values:
     values.analyzedLoudnessDb ?? null,
     values.analyzedDynamicRangeDb ?? null,
     values.analyzedDanceability ?? null,
+    values.analyzedFirstBeatSec ?? null,
     values.analysisStatus,
     values.analyzedAt ?? Date.now(),
     values.timeDecodeMs ?? null,
@@ -337,6 +343,52 @@ export function appendAnalysisHistory(database: Database, entry: {
     entry.timeOrbitMs ?? null,
     entry.timeTotalMs ?? null,
     Date.now(),
+  );
+}
+
+// ── Waveform helpers ──────────────────────────────────────────────────────────
+
+export interface WaveformDataRow {
+  peaks: number[] | null;
+  duration: number | null;
+  bpm: number | null;
+  firstBeatSec: number;
+}
+
+export function readWaveformData(database: Database, trackId: string): WaveformDataRow | null {
+  type Row = {
+    waveform_peaks: string | null;
+    waveform_duration: number | null;
+    analyzed_bpm: number | null;
+    bpm: number | null;
+    analyzed_first_beat_sec: number | null;
+  };
+  const row = database.query<Row, [string]>(
+    "SELECT waveform_peaks, waveform_duration, analyzed_bpm, bpm, analyzed_first_beat_sec FROM content WHERE id = ?"
+  ).get(trackId);
+  if (!row) return null;
+
+  let peaks: number[] | null = null;
+  if (row.waveform_peaks) {
+    try {
+      peaks = JSON.parse(row.waveform_peaks) as number[];
+    } catch {
+      peaks = null;
+    }
+  }
+
+  return {
+    peaks,
+    duration: row.waveform_duration ?? null,
+    bpm: row.analyzed_bpm ?? (row.bpm != null ? row.bpm / 100 : null),
+    firstBeatSec: row.analyzed_first_beat_sec ?? 0,
+  };
+}
+
+export function writeWaveformPeaks(database: Database, trackId: string, peaksJson: string, duration: number): void {
+  database.run(
+    "UPDATE content SET waveform_peaks = ?, waveform_duration = ? WHERE id = ?",
+    [peaksJson, duration, trackId],
   );
 }
 

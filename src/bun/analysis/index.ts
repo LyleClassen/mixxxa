@@ -377,6 +377,7 @@ export function reportResult(db: Database, result: AnalysisResult): void {
     writeAnalyzedValues(db, row.track_id, {
       analyzedBpm: result.analyzedBpm ?? null,
       analyzedKey: result.analyzedKey ?? null,
+      analyzedFirstBeatSec: result.analyzedFirstBeatSec ?? null,
       analysisStatus: "done",
       ...result.timings,
     });

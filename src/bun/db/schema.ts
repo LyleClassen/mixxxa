@@ -39,7 +39,10 @@ CREATE TABLE IF NOT EXISTS content (
   time_bpm_ms INTEGER,
   time_bitrate_ms INTEGER,
   time_orbit_ms INTEGER,
-  time_total_ms INTEGER
+  time_total_ms INTEGER,
+  analyzed_first_beat_sec REAL,
+  waveform_peaks TEXT,
+  waveform_duration REAL
 );
 
 CREATE TABLE IF NOT EXISTS artist (

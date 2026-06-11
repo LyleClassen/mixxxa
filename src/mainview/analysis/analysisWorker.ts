@@ -97,6 +97,7 @@ async function analyzeTrack(claim: ClaimResponse): Promise<void> {
 
     let analyzedKey: string | undefined;
     let analyzedBpm: number | undefined;
+    let analyzedFirstBeatSec: number | undefined;
 
     if (claim.aspects.includes("key")) {
       await reportPhase("key", 0);
@@ -110,9 +111,19 @@ async function analyzeTrack(claim: ClaimResponse): Promise<void> {
     if (claim.aspects.includes("bpm")) {
       await reportPhase("bpm", 0);
       t0 = performance.now();
-      const res = essentia.RhythmExtractor2013(vectorSignal) as { bpm: number };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const res = essentia.RhythmExtractor2013(vectorSignal) as { bpm: number; ticks: any };
       timings.timeBpmMs = Math.round(performance.now() - t0);
       analyzedBpm = res.bpm;
+      // First beat tick (seconds) anchors the beat-grid overlay in the player.
+      try {
+        const ticks = essentia.vectorToArray(res.ticks) as Float32Array;
+        if (ticks.length > 0) analyzedFirstBeatSec = ticks[0];
+      } finally {
+        if (res.ticks && typeof res.ticks.delete === "function") {
+          try { res.ticks.delete(); } catch { /* already freed */ }
+        }
+      }
       await reportPhase("bpm", 1, { timeBpmMs: timings.timeBpmMs });
     }
 
@@ -127,6 +138,7 @@ async function analyzeTrack(claim: ClaimResponse): Promise<void> {
       success: true,
       analyzedKey,
       analyzedBpm,
+      analyzedFirstBeatSec,
       timings,
     });
   } catch (err) {

@@ -4,6 +4,7 @@ import type { MixxxRPC } from "../shared/types";
 import { rpcHandlers } from "./rpc/index";
 import { initRekordboxHandlers } from "./rpc/rekordbox";
 import { initAnalysisHandlers } from "./rpc/analysis";
+import { initWaveformHandlers } from "./rpc/waveform";
 import { closeDb, getDb } from "./db/localDb";
 import { startAudioServer, stopAudioServer } from "./audioServer";
 import { initAnalysis } from "./analysis/index";
@@ -31,6 +32,7 @@ async function getMainViewUrl(): Promise<string> {
 
 initRekordboxHandlers(Utils.paths.userData);
 initAnalysisHandlers(Utils.paths.userData);
+initWaveformHandlers(Utils.paths.userData);
 startAudioServer(Utils.paths.userData);
 
 const db = getDb(Utils.paths.userData);

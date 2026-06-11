@@ -35,6 +35,15 @@ export interface Track {
 
 export type SyncErrorKind = "not-found" | "unreadable";
 
+// ── Waveform types ────────────────────────────────────────────────────────────
+
+export interface WaveformData {
+  peaks: number[] | null;
+  duration: number | null;
+  bpm: number | null;
+  firstBeatSec: number;
+}
+
 // ── Analysis types ────────────────────────────────────────────────────────────
 
 export type AnalysisAspect = "key" | "bpm" | "bitrate" | "energy" | "loudness" | "dynamics" | "danceability";
@@ -99,6 +108,9 @@ export type MixxxRPC = {
       getAllTracks: { params: undefined; response: Track[] };
       reorderPlaylistTracks: { params: { playlistId: string; orderedTrackIds: string[] }; response: Track[] };
       getTrackAudioUrl: { params: { trackId: string }; response: string | null };
+      // Waveform
+      getWaveformData: { params: { trackId: string }; response: WaveformData | null };
+      saveWaveformPeaks: { params: { trackId: string; peaks: number[]; duration: number }; response: void };
       // Analysis — queue management
       enqueueTrack: { params: { trackId: string }; response: void };
       enqueuePlaylist: { params: { playlistId: string }; response: void };
@@ -147,5 +159,6 @@ export interface AnalysisResult {
   error?: string;
   analyzedBpm?: number;
   analyzedKey?: string;
+  analyzedFirstBeatSec?: number;
   timings: QueueItemTimings;
 }
