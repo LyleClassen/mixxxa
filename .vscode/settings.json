@@ -1,0 +1,20 @@
+{
+    "dbcode.connections": [
+        {
+            "connectionId": "-xNlaoHa1KBflUv_uo43M",
+            "name": "Mixxa",
+            "driver": "sqlite",
+            "connectionType": "socket",
+            "socket": "c:\\Users\\TDK_Rage\\AppData\\Local\\reacttailwindvite.electrobun.dev\\dev\\library.db",
+            "readOnly": false,
+            "postConnectionSqlType": "inline",
+            "driverOptions": {
+                "extensions": []
+            },
+            "idleTimeout": 0,
+            "introspection": {
+                "progressive": false
+            }
+        }
+    ]
+}
