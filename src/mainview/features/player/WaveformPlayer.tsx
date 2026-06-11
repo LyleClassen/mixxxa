@@ -94,6 +94,10 @@ export function WaveformPlayer({ track }: { track: Track | null }) {
     // scrollLeft = currentTime * pxPerSec (cursor centered for the whole track).
     const scrollEl = instance.getWrapper().parentElement as HTMLElement;
     const container = zoomedRef.current;
+    // Wavesurfer's .scroll element is width:100% content-box, so the padding
+    // would otherwise widen it past the container and clamp scrolling half a
+    // viewport short of the track end (waveform end never reaches the playhead).
+    scrollEl.style.boxSizing = "border-box";
     const updatePadding = () => {
       const half = Math.round(container.clientWidth / 2);
       scrollEl.style.paddingLeft = `${half}px`;
