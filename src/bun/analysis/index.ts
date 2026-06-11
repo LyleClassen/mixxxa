@@ -12,12 +12,14 @@ import type {
 import { AnalysisQueueStore } from "./queue";
 import { decodeAudio } from "./decoder";
 import { analyzeBitrate } from "./bitrate";
+import { computeFingerprint } from "./fingerprint";
 import { loadSettings, saveSettings } from "./settings";
 import { analyzeOrbit } from "./sidecar";
 import { normalizeKey } from "../../shared/camelot";
 import {
   writeAnalyzedValues,
   writeAnalyzedBitrate,
+  writeFingerprint,
   appendAnalysisHistory,
   readAnalysisHistory,
   pruneAnalysisHistory,
@@ -43,6 +45,23 @@ function schedulePush(store: AnalysisQueueStore): void {
 
 // Pause state
 let paused = false;
+
+// Chromaprint fingerprint — non-fatal: log and continue analysis on error
+async function fingerprintAndStore(
+  db: Database,
+  trackId: string,
+  trackName: string,
+  pcm: ArrayBuffer,
+  sampleRate: number,
+): Promise<void> {
+  try {
+    const { fingerprint, ms } = await computeFingerprint(pcm, sampleRate);
+    writeFingerprint(db, trackId, fingerprint, ms);
+    bunLog("ANALYSIS", `fingerprint: ${trackName} (${ms}ms)`);
+  } catch (err) {
+    bunLog("ANALYSIS", `fingerprint error: ${trackName} — ${err}`);
+  }
+}
 
 // Active analysis state tracks whether a cancel was requested for in-flight items
 const canceledItems = new Set<string>();
@@ -216,15 +235,36 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
     store.setPhaseProgress(row.id, "orbit", 0);
     schedulePush(store);
 
+    // Fingerprint Bun-side (orbit has no Bun-side PCM otherwise) — non-fatal
+    try {
+      const fpDecoded = await decodeAudio(fileRow.file_path, 44100, 120);
+      await fingerprintAndStore(db, row.track_id, trackName, fpDecoded.buffer, fpDecoded.sampleRate);
+    } catch (err) {
+      bunLog("ANALYSIS", `fingerprint decode error: ${trackName} — ${err}`);
+    }
+
     const t0 = Date.now();
     try {
-      const orbitResult = await analyzeOrbit(fileRow.file_path, 600);
+      const orbitResult = await analyzeOrbit(fileRow.file_path, 600, (_step, pct) => {
+        if (canceledItems.has(row.id)) return;
+        store.setPhaseProgress(row.id, "orbit", pct);
+        schedulePush(store);
+      });
       const timeOrbitMs = Date.now() - t0;
 
       const normalized = normalizeKey(
         orbitResult.key.split(" ")[0] ?? orbitResult.key,
         orbitResult.key.split(" ")[1] ?? "",
       );
+
+      const timings: QueueItemTimings = {
+        timeDecodeMs: orbitResult.timings.decodeMs,
+        timeKeyMs: orbitResult.timings.keyMs,
+        timeBpmMs: orbitResult.timings.bpmMs,
+        timeBitrateMs,
+        timeOrbitMs,
+        timeTotalMs: (timeBitrateMs ?? 0) + timeOrbitMs,
+      };
 
       writeAnalyzedValues(db, row.track_id, {
         ...(orbitAspects.includes("key") || orbitAspects.includes("bpm") ? {
@@ -236,20 +276,22 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
         ...(orbitAspects.includes("dynamics") ? { analyzedDynamicRangeDb: orbitResult.dynamicRangeDb } : {}),
         ...(orbitAspects.includes("danceability") ? { analyzedDanceability: orbitResult.danceability } : {}),
         analysisStatus: "done",
+        timeDecodeMs: timings.timeDecodeMs,
+        timeKeyMs: timings.timeKeyMs,
+        timeBpmMs: timings.timeBpmMs,
         timeOrbitMs,
-        timeTotalMs: (timeBitrateMs ?? 0) + timeOrbitMs,
+        timeTotalMs: timings.timeTotalMs,
       });
 
-      store.setPhaseProgress(row.id, "orbit", 1, { timeOrbitMs });
+      store.setPhaseProgress(row.id, "orbit", 1, timings);
       store.setStatus(row.id, "done");
+      bunLog("ANALYSIS", `done: trackId=${row.track_id} timings=${JSON.stringify(timings)}`);
       appendAnalysisHistory(db, {
         id: randomUUID(),
         trackId: row.track_id,
         aspects: allAspects,
         status: "done",
-        timeBitrateMs,
-        timeOrbitMs,
-        timeTotalMs: (timeBitrateMs ?? 0) + timeOrbitMs,
+        ...timings,
       });
     } catch (err) {
       bunLog("ANALYSIS", `orbit error: ${trackName} — ${err}`);
@@ -290,6 +332,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
     const decoded = await decodeAudio(fileRow.file_path, 44100);
     bunLog("ANALYSIS", `decode: ${trackName} (${Date.now() - t0}ms)`);
     pcmCache.set(row.id, decoded.buffer);
+    await fingerprintAndStore(db, row.track_id, trackName, decoded.buffer, decoded.sampleRate);
   } catch (err) {
     bunLog("ANALYSIS", `decode error: ${trackName} — ${err}`);
     store.setStatus(row.id, "failed", String(err));

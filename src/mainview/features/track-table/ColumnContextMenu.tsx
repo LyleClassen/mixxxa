@@ -29,7 +29,10 @@ export function ColumnContextMenu({ pos, columns, onClose }: ColumnContextMenuPr
       {hideableCols.map((col) => (
         <button
           key={col.id}
-          onClick={() => col.toggleVisibility()}
+          // Pass the value explicitly: the no-arg toggleVisibility() computes
+          // !getIsVisible() inside the state updater, reading the live table
+          // instance — non-idempotent, so StrictMode's dev replay un-toggles it.
+          onClick={() => col.toggleVisibility(!col.getIsVisible())}
           className="w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors"
         >
           <span

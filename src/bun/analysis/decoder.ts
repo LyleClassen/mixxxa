@@ -14,10 +14,12 @@ export interface DecodedPcm {
 /**
  * Decode an audio file to mono float32 PCM using ffmpeg.
  * sampleRate: 44100 for Key/BPM DSP; 16000 for ML feature extraction.
+ * maxSeconds: optionally truncate the decode (e.g. fingerprinting only needs 120s).
  */
 export async function decodeAudio(
   filePath: string,
   sampleRate: 44100 | 16000 = 44100,
+  maxSeconds?: number,
 ): Promise<DecodedPcm> {
   const proc = Bun.spawn(
     [
@@ -27,6 +29,7 @@ export async function decodeAudio(
       "-ac", "1",
       "-ar", String(sampleRate),
       "-f", "f32le",
+      ...(maxSeconds != null ? ["-t", String(maxSeconds)] : []),
       "-",
     ],
     { stdout: "pipe", stderr: "pipe" },

@@ -9,6 +9,7 @@
         "@base-ui-components/react": "^1.0.0-rc.0",
         "@tanstack/react-table": "^8.21.3",
         "@types/ffprobe-static": "^2.0.3",
+        "@unimusic/chromaprint": "0.1.4",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "electrobun": "1.18.1",
@@ -43,6 +44,7 @@
   ],
   "patchedDependencies": {
     "rbox-js@0.1.7": "patches/rbox-js@0.1.7.patch",
+    "@unimusic/chromaprint@0.1.4": "patches/@unimusic%2Fchromaprint@0.1.4.patch",
   },
   "packages": {
     "0xbitnet": ["0xbitnet@0.5.2", "", {}, "sha512-hLcryg9zUcuuPwVNONdl/gN5wihOLSHYGx9F+Xr5wA99/nsfcSu+U9Pn4WZNXpmDwtFRNxuZPsT5aC6sgYtblg=="],
@@ -282,6 +284,8 @@
     "@types/react": ["@types/react@18.3.29", "", { "dependencies": { "@types/prop-types": "*", "csstype": "^3.2.2" } }, "sha512-ch0qJdr2JY0r04NXSprbK6TXOgnaJ1Tz23fm5W+z0/CBah6BSBc3n96h7K9GOtwh0HrilNWHIBzE1Ko4Dcw/Wg=="],
 
     "@types/react-dom": ["@types/react-dom@18.3.7", "", { "peerDependencies": { "@types/react": "^18.0.0" } }, "sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ=="],
+
+    "@unimusic/chromaprint": ["@unimusic/chromaprint@0.1.4", "", {}, "sha512-li+/NUjgvvPNEcWK1+72pxXT/vtfNpwWW2QNrh9+uccJ7tGT0Lnn0XCx9P+Sjnl9vJ2qa03dQYKV9w/i8o6Yww=="],
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@4.7.0", "", { "dependencies": { "@babel/core": "^7.28.0", "@babel/plugin-transform-react-jsx-self": "^7.27.1", "@babel/plugin-transform-react-jsx-source": "^7.27.1", "@rolldown/pluginutils": "1.0.0-beta.27", "@types/babel__core": "^7.20.5", "react-refresh": "^0.17.0" }, "peerDependencies": { "vite": "^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0" } }, "sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA=="],
 

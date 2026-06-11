@@ -26,6 +26,7 @@ export interface Track {
   analyzedLoudnessDb: number | null;
   analyzedDynamicRangeDb: number | null;
   analyzedDanceability: number | null;
+  fingerprint: string | null;
   analysisStatus: "done" | "failed" | null;
   // Diff flags
   bpmDiffers: boolean;

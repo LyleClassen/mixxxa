@@ -17,6 +17,8 @@ const CONTENT_ANALYSIS_COLUMNS = [
   "analyzed_loudness_db REAL",
   "analyzed_dynamic_range_db REAL",
   "analyzed_danceability REAL",
+  "fingerprint TEXT",
+  "time_fingerprint_ms INTEGER",
   "analysis_status TEXT",
   "analyzed_at INTEGER",
   "time_decode_ms INTEGER",
@@ -140,6 +142,7 @@ type ContentRow = {
   analyzed_loudness_db: number | null;
   analyzed_dynamic_range_db: number | null;
   analyzed_danceability: number | null;
+  fingerprint: string | null;
   analysis_status: string | null;
 };
 
@@ -180,6 +183,7 @@ function rowToTrack(row: ContentRow): Track {
     analyzedLoudnessDb: row.analyzed_loudness_db ?? null,
     analyzedDynamicRangeDb: row.analyzed_dynamic_range_db ?? null,
     analyzedDanceability: row.analyzed_danceability ?? null,
+    fingerprint: row.fingerprint ?? null,
     analysisStatus: (row.analysis_status as Track["analysisStatus"]) ?? null,
     bpmDiffers,
     keyDiffers,
@@ -204,6 +208,7 @@ const TRACK_SELECT = `
   c.analyzed_loudness_db,
   c.analyzed_dynamic_range_db,
   c.analyzed_danceability,
+  c.fingerprint,
   c.analysis_status
 `;
 
@@ -332,6 +337,13 @@ export function appendAnalysisHistory(database: Database, entry: {
     entry.timeOrbitMs ?? null,
     entry.timeTotalMs ?? null,
     Date.now(),
+  );
+}
+
+export function writeFingerprint(database: Database, trackId: string, fingerprint: string, timeFingerprintMs: number): void {
+  database.run(
+    "UPDATE content SET fingerprint = ?, time_fingerprint_ms = ? WHERE id = ?",
+    [fingerprint, timeFingerprintMs, trackId],
   );
 }
 

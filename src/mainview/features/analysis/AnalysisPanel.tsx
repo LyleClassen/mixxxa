@@ -13,6 +13,11 @@ const PHASE_LABELS: Record<string, string> = {
 
 function stepProgress(item: QueueItem): number {
   if (!item.phase) return 0;
+  if (item.phase === "orbit") {
+    // ORBIT reports overall 0..1 progress directly; bitrate (if requested)
+    // runs first as its own phase, so orbit occupies the second half.
+    return item.aspects.includes("bitrate") ? (1 + item.progress) / 2 : item.progress;
+  }
   const phases: string[] = ["decoding", ...item.aspects, "persisting"];
   const idx = phases.indexOf(item.phase);
   return idx === -1 ? 0 : (idx + item.progress) / phases.length;

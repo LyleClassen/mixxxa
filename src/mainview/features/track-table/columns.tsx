@@ -195,6 +195,21 @@ export const TRACK_COLUMNS = [
       </span>
     ),
   }),
+  col.accessor("fingerprint", {
+    id: "fingerprint",
+    header: "Fingerprint",
+    size: 120,
+    minSize: 50,
+    cell: (info) => {
+      const fp = info.getValue();
+      if (fp == null) return <span className="text-muted-foreground">—</span>;
+      return (
+        <span className="font-mono text-muted-foreground truncate block" title={fp}>
+          {fp.slice(0, 16)}…
+        </span>
+      );
+    },
+  }),
   col.accessor("rating", {
     header: "Rating",
     size: 70,
@@ -208,13 +223,18 @@ export const TRACK_COLUMNS = [
   }),
 ];
 
-export const COLUMN_IDS = TRACK_COLUMNS.map((c) => c.id as string);
+// Accessor columns without an explicit `id` only carry `accessorKey` until the
+// table instance derives the id, so fall back to it here.
+export const COLUMN_IDS = TRACK_COLUMNS.map(
+  (c) => (c.id ?? (c as { accessorKey?: string }).accessorKey) as string,
+);
 
 export const DEFAULT_HIDDEN = new Set<string>([
   "analyzed_bitrate",
   "analyzed_loudness_db",
   "analyzed_dynamic_range",
   "analyzed_danceability",
+  "fingerprint",
 ]);
 
 // Columns that were removed from DEFAULT_HIDDEN in a past release. On load they

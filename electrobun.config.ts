@@ -11,6 +11,10 @@ export default {
 		copy: {
 			"dist/index.html": "views/mainview/index.html",
 			"dist/assets": "views/mainview/assets",
+			// Must sit next to the bun bundle: Emscripten can't fetch file://
+			// under Bun, so src/bun/analysis/fingerprint.ts reads it manually
+			"node_modules/@unimusic/chromaprint/dist/chromaprint.wasm":
+				"bun/chromaprint.wasm",
 		},
 		// Ignore Vite build output in watch mode
 		watchIgnore: ["dist/**"],

@@ -70,12 +70,21 @@ const MAX_FAILURES = 3;
 const pending = new Map<string, {
   resolve: (r: OrbitResult) => void;
   reject: (e: Error) => void;
+  onProgress?: OrbitProgressCallback;
 }>();
 
 // In-flight mutex: only one request at a time in v1
 let inflight: Promise<OrbitResult> | null = null;
 
 // ── Types ────────────────────────────────────────────────────────────────────
+
+export interface OrbitTimings {
+  decodeMs: number;
+  bpmMs: number;
+  keyMs: number;
+  featuresMs: number;
+  totalMs: number;
+}
 
 export interface OrbitResult {
   bpm: number;
@@ -85,7 +94,11 @@ export interface OrbitResult {
   dynamicRangeDb: number;
   danceability: number;
   durationSec: number;
+  timings: OrbitTimings;
 }
+
+/** Called with the current step name and overall progress fraction (0..1). */
+export type OrbitProgressCallback = (step: string, pct: number) => void;
 
 interface SidecarResponse {
   id: string;
@@ -97,7 +110,15 @@ interface SidecarResponse {
     dynamic_range_db: number;
     danceability: number;
     duration: number;
+    timings?: {
+      decode_ms: number;
+      bpm_ms: number;
+      key_ms: number;
+      features_ms: number;
+      total_ms: number;
+    };
   };
+  progress?: { step: string; pct: number };
   error?: string;
   ready?: boolean;
 }
@@ -172,6 +193,11 @@ async function readLoop(p: Subprocess<"pipe", "pipe", "pipe">): Promise<void> {
           }
           const pend = pending.get(msg.id);
           if (!pend) continue;
+          if (msg.progress) {
+            // Interim progress — keep the pending entry alive
+            try { pend.onProgress?.(msg.progress.step, msg.progress.pct); } catch {}
+            continue;
+          }
           pending.delete(msg.id);
           if (msg.error) {
             pend.reject(new Error(msg.error));
@@ -185,6 +211,13 @@ async function readLoop(p: Subprocess<"pipe", "pipe", "pipe">): Promise<void> {
               dynamicRangeDb: r.dynamic_range_db,
               danceability: r.danceability,
               durationSec: r.duration,
+              timings: {
+                decodeMs: r.timings?.decode_ms ?? 0,
+                bpmMs: r.timings?.bpm_ms ?? 0,
+                keyMs: r.timings?.key_ms ?? 0,
+                featuresMs: r.timings?.features_ms ?? 0,
+                totalMs: r.timings?.total_ms ?? 0,
+              },
             });
           }
         } catch {}
@@ -224,12 +257,12 @@ async function ensureRunning(): Promise<void> {
   }
 }
 
-async function sendRequest(filePath: string, maxLength: number): Promise<OrbitResult> {
+async function sendRequest(filePath: string, maxLength: number, onProgress?: OrbitProgressCallback): Promise<OrbitResult> {
   const id = randomUUID();
   const line = JSON.stringify({ id, filePath, maxLength }) + "\n";
 
   return new Promise<OrbitResult>((resolve, reject) => {
-    pending.set(id, { resolve, reject });
+    pending.set(id, { resolve, reject, onProgress });
     try {
       proc!.stdin.write(line);
     } catch (err) {
@@ -243,7 +276,7 @@ async function sendRequest(filePath: string, maxLength: number): Promise<OrbitRe
  * Analyze a track with ORBIT. Lazily spawns the sidecar on first call.
  * Serializes requests (one at a time) and restarts on crash.
  */
-export async function analyzeOrbit(filePath: string, maxLength: number): Promise<OrbitResult> {
+export async function analyzeOrbit(filePath: string, maxLength: number, onProgress?: OrbitProgressCallback): Promise<OrbitResult> {
   // Wait for any in-flight request to finish before starting a new one
   while (inflight) {
     try { await inflight; } catch { /* ignore errors from previous calls */ }
@@ -255,7 +288,7 @@ export async function analyzeOrbit(filePath: string, maxLength: number): Promise
     bunLog("SIDECAR", `analyze start: ${name}`);
     const t0 = Date.now();
     try {
-      const result = await sendRequest(filePath, maxLength);
+      const result = await sendRequest(filePath, maxLength, onProgress);
       bunLog("SIDECAR", `analyze done: ${name} bpm=${result.bpm.toFixed(1)} key=${result.key} (${Date.now() - t0}ms)`);
       return result;
     } catch (err) {
