@@ -496,6 +496,7 @@ function App() {
                     storageKey="mixxxa.trackTableColumns"
                     currentPlaylistId={selectedPlaylistId === COLLECTION_ID ? null : selectedPlaylistId}
                     reorderable={selectedPlaylistId !== COLLECTION_ID}
+                    showIndexColumn={selectedPlaylistId !== COLLECTION_ID}
                     searchActive={debouncedSearch.trim().length > 0}
                     onReorder={handleReorder}
                   />

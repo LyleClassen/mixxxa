@@ -17,7 +17,13 @@ interface StoredConfig {
   hidden: string[];
 }
 
+// In-memory fallback so config survives remounts (the table unmounts while a
+// playlist switch loads) even when localStorage is unavailable in the WebView.
+const sessionCache = new Map<string, StoredConfig>();
+
 function loadConfig(storageKey: string): StoredConfig {
+  const cached = sessionCache.get(storageKey);
+  if (cached) return cached;
   try {
     const raw = localStorage.getItem(storageKey);
     if (raw) return JSON.parse(raw) as StoredConfig;
@@ -57,12 +63,14 @@ export function useColumnConfig(storageKey: string) {
   });
 
   useEffect(() => {
+    const config: StoredConfig = {
+      order: columnOrder,
+      widths: columnSizing,
+      hidden: Object.keys(columnVisibility).filter((id) => columnVisibility[id] === false),
+    };
+    sessionCache.set(storageKey, config);
     try {
-      localStorage.setItem(storageKey, JSON.stringify({
-        order: columnOrder,
-        widths: columnSizing,
-        hidden: Object.keys(columnVisibility).filter((id) => columnVisibility[id] === false),
-      }));
+      localStorage.setItem(storageKey, JSON.stringify(config));
     } catch {}
   }, [storageKey, columnOrder, columnSizing, columnVisibility]);
 

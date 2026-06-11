@@ -20,6 +20,9 @@ export interface TrackTableProps {
   currentPlaylistId: string | null;
   // Reorder support — enabled only for real playlists (not the Collection view).
   reorderable?: boolean;
+  // The "#" position column is meaningless on the Collection view; hiding it
+  // here is forced and does not touch the user's stored visibility preference.
+  showIndexColumn?: boolean;
   // Active search filter; reordering a filtered subset is ambiguous, so disable it.
   searchActive?: boolean;
   onReorder?: (orderedTrackIds: string[]) => void;
@@ -34,9 +37,17 @@ export function TrackTable({
   currentPlaylistId,
   reorderable = false,
   searchActive = false,
+  showIndexColumn = true,
   onReorder,
 }: TrackTableProps) {
   const columnConfig = useColumnConfig(storageKey);
+
+  // Forced override on top of stored visibility. Safe to layer here: visibility
+  // updaters are applied against the hook's own state, so the override never
+  // leaks into localStorage.
+  const columnVisibility = showIndexColumn
+    ? columnConfig.columnVisibility
+    : { ...columnConfig.columnVisibility, index: false };
 
   const table = useReactTable({
     data: tracks,
@@ -46,7 +57,7 @@ export function TrackTable({
     state: {
       columnOrder: columnConfig.columnOrder,
       columnSizing: columnConfig.columnSizing,
-      columnVisibility: columnConfig.columnVisibility,
+      columnVisibility,
     },
     onColumnOrderChange: columnConfig.onColumnOrderChange,
     onColumnSizingChange: columnConfig.onColumnSizingChange,
@@ -106,10 +117,11 @@ export function TrackTable({
     newVisible.splice(fromIndex, 1);
     const adjustedDrop = dropIndex > fromIndex ? dropIndex - 1 : dropIndex;
     newVisible.splice(adjustedDrop, 0, dragColId);
-    // Re-insert hidden columns after their nearest preceding neighbor so they
-    // keep their relative position in the full order.
+    // Re-insert hidden columns (including force-hidden ones like "index" on the
+    // Collection view) after their nearest preceding neighbor so they keep
+    // their relative position in the full order.
     const order = columnConfig.columnOrder;
-    const hiddenInOrder = order.filter((id) => columnConfig.columnVisibility[id] === false);
+    const hiddenInOrder = order.filter((id) => !visibleIds.includes(id));
     const newOrder = [...newVisible];
     for (const hiddenId of hiddenInOrder) {
       const origIdx = order.indexOf(hiddenId);
@@ -156,7 +168,7 @@ export function TrackTable({
       {headerMenuPos && (
         <ColumnContextMenu
           pos={headerMenuPos}
-          columns={table.getAllLeafColumns()}
+          columns={table.getAllLeafColumns().filter((c) => showIndexColumn || c.id !== "index")}
           onClose={() => setHeaderMenuPos(null)}
         />
       )}
