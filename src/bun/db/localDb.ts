@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { SCHEMA_SQL } from "./schema";
-import type { PlaylistNode, Track, HistoryEntry } from "../../shared/types";
+import type { PlaylistNode, Track, HistoryEntry, CueMarker } from "../../shared/types";
 
 let db: Database | null = null;
 
@@ -353,6 +353,7 @@ export interface WaveformDataRow {
   duration: number | null;
   bpm: number | null;
   firstBeatSec: number;
+  cues: CueMarker[];
 }
 
 export function readWaveformData(database: Database, trackId: string): WaveformDataRow | null {
@@ -377,11 +378,32 @@ export function readWaveformData(database: Database, trackId: string): WaveformD
     }
   }
 
+  type CueRow = {
+    id: string;
+    position_sec: number;
+    end_sec: number | null;
+    kind: number;
+    color: string | null;
+    comment: string | null;
+  };
+  // Sorted ascending — prev/next cue navigation relies on this order.
+  const cueRows = database.query<CueRow, [string]>(
+    "SELECT id, position_sec, end_sec, kind, color, comment FROM cue WHERE content_id = ? ORDER BY position_sec ASC"
+  ).all(trackId);
+
   return {
     peaks,
     duration: row.waveform_duration ?? null,
     bpm: row.analyzed_bpm ?? (row.bpm != null ? row.bpm / 100 : null),
     firstBeatSec: row.analyzed_first_beat_sec ?? 0,
+    cues: cueRows.map((c) => ({
+      id: c.id,
+      positionSec: c.position_sec,
+      endSec: c.end_sec,
+      kind: c.kind,
+      color: c.color,
+      comment: c.comment,
+    })),
   };
 }
 
@@ -450,6 +472,7 @@ interface LibraryData {
   contents: Array<{ id: string; title: string | null; artist_id: string | null; key_id: string | null; bpm: number | null; length: number | null; bit_rate: number | null; rating: number | null; file_path: string | null; album: string | null }>;
   artists: Array<{ id: string; name: string }>;
   keys: Array<{ id: string; name: string }>;
+  cues: Array<{ id: string; content_id: string; position_sec: number; end_sec: number | null; kind: number; color: string | null; comment: string | null }>;
 }
 
 export function replaceLibrary(database: Database, data: LibraryData): void {
@@ -459,6 +482,7 @@ export function replaceLibrary(database: Database, data: LibraryData): void {
     database.exec("DELETE FROM content");
     database.exec("DELETE FROM artist");
     database.exec("DELETE FROM key");
+    database.exec("DELETE FROM cue");
 
     const insertPlaylist = database.prepare(
       "INSERT INTO playlist (id, name, attribute, parent_id, seq) VALUES (?, ?, ?, ?, ?)"
@@ -489,6 +513,13 @@ export function replaceLibrary(database: Database, data: LibraryData): void {
     const insertKey = database.prepare("INSERT INTO key (id, name) VALUES (?, ?)");
     for (const k of data.keys) {
       insertKey.run(k.id, k.name);
+    }
+
+    const insertCue = database.prepare(
+      "INSERT INTO cue (id, content_id, position_sec, end_sec, kind, color, comment) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    );
+    for (const c of data.cues) {
+      insertCue.run(c.id, c.content_id, c.position_sec, c.end_sec, c.kind, c.color, c.comment);
     }
   });
 

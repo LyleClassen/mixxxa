@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings } from "../shared/types";
 import { electroview } from "./rpc";
-import { WaveformPlayer } from "./features/player/WaveformPlayer";
+import { WaveformPlayer, type WaveformPlayerHandle } from "./features/player/WaveformPlayer";
 import { TrackTable } from "./features/track-table";
 import { AnalysisPanel } from "./features/analysis/AnalysisPanel";
 import { SettingsPage } from "./features/settings/SettingsPage";
@@ -39,6 +39,8 @@ function App() {
   });
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loadedTrack, setLoadedTrack] = useState<Track | null>(null);
+  const playerRef = useRef<WaveformPlayerHandle>(null);
+  const [cueCount, setCueCount] = useState(0);
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [syncError, setSyncError] = useState<SyncErrorKind | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -407,7 +409,7 @@ function App() {
 
             {/* Player Section */}
             <section className="p-6 border-b border-border bg-card/50 flex flex-col gap-4 shrink-0">
-              <WaveformPlayer track={loadedTrack} />
+              <WaveformPlayer ref={playerRef} track={loadedTrack} onCuesChanged={setCueCount} />
 
               <div className="flex items-end justify-between">
                 <div>
@@ -436,8 +438,18 @@ function App() {
                     <div className="flex items-center gap-3 ml-4 border-l border-border pl-6">
                       <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Cue Points</span>
                       <div className="flex items-center gap-1">
-                        <button className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors"><SkipBack size={14} /></button>
-                        <button className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors"><SkipForward size={14} /></button>
+                        <button
+                          onClick={() => playerRef.current?.prevCue()}
+                          disabled={cueCount === 0}
+                          title="Previous cue"
+                          className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors disabled:opacity-40"
+                        ><SkipBack size={14} /></button>
+                        <button
+                          onClick={() => playerRef.current?.nextCue()}
+                          disabled={cueCount === 0}
+                          title="Next cue"
+                          className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors disabled:opacity-40"
+                        ><SkipForward size={14} /></button>
                       </div>
                       <Button variant="outline" size="sm" className="h-7 text-xs border-dashed text-muted-foreground hover:text-foreground">ADD CUE</Button>
                     </div>

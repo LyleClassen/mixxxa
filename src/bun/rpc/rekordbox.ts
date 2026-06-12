@@ -26,6 +26,56 @@ function makeSyncError(kind: SyncErrorKind, message: string): Error {
   return err;
 }
 
+// Standard Rekordbox hot-cue palette, keyed by colorTableIndex.
+const CUE_COLOR_TABLE: Record<number, string> = {
+  1: "#F870F8",
+  2: "#F80000",
+  3: "#F8A030",
+  4: "#C3AF04",
+  5: "#28E214",
+  6: "#25FDE9",
+  7: "#0672F8",
+  8: "#B432F8",
+};
+
+function normalizeColorCode(code: string | undefined): string | null {
+  if (!code) return null;
+  const hex = code.match(/^#?([0-9a-fA-F]{6})$/);
+  if (hex) return `#${hex[1].toUpperCase()}`;
+  const n = Number(code);
+  if (Number.isFinite(n) && n >= 0) return `#${Math.round(n).toString(16).padStart(6, "0").toUpperCase()}`;
+  return null;
+}
+
+function mapCues(
+  cues: ReturnType<MasterDb["getCues"]>,
+  colors: ReturnType<MasterDb["getColors"]>,
+): Array<{ id: string; content_id: string; position_sec: number; end_sec: number | null; kind: number; color: string | null; comment: string | null }> {
+  const colorById = new Map(colors.map((c) => [c.id, c.colorCode]));
+  const mapped: ReturnType<typeof mapCues> = [];
+  for (const cue of cues) {
+    if (cue.rbLocalDeleted === 1 || cue.inMsec < 0) continue;
+
+    let color: string | null = null;
+    if (cue.colorTableIndex != null && CUE_COLOR_TABLE[cue.colorTableIndex]) {
+      color = CUE_COLOR_TABLE[cue.colorTableIndex];
+    } else if (cue.color !== -1) {
+      color = normalizeColorCode(colorById.get(String(cue.color)));
+    }
+
+    mapped.push({
+      id: cue.id,
+      content_id: cue.contentId,
+      position_sec: cue.inMsec / 1000,
+      end_sec: cue.outMsec > 0 ? cue.outMsec / 1000 : null,
+      kind: cue.kind,
+      color,
+      comment: cue.comment ?? null,
+    });
+  }
+  return mapped;
+}
+
 export const rekordboxHandlers = {
   syncFromRekordbox: async (): Promise<PlaylistNode[]> => {
     const masterDbPath = getDefaultMasterDbPath();
@@ -52,6 +102,8 @@ export const rekordboxHandlers = {
     let artists: ReturnType<MasterDb["getArtists"]>;
     let keys: ReturnType<MasterDb["getKeys"]>;
     let albums: ReturnType<MasterDb["getAlbums"]>;
+    let cues: ReturnType<MasterDb["getCues"]>;
+    let colors: ReturnType<MasterDb["getColors"]>;
 
     try {
       playlists = rbDb.getPlaylists();
@@ -59,6 +111,8 @@ export const rekordboxHandlers = {
       artists = rbDb.getArtists();
       keys = rbDb.getKeys();
       albums = rbDb.getAlbums();
+      cues = rbDb.getCues();
+      colors = rbDb.getColors();
     } catch {
       const locked = isRekordboxRunning();
       throw makeSyncError(
@@ -119,6 +173,7 @@ export const rekordboxHandlers = {
       })),
       artists: artists.map((a) => ({ id: a.id, name: a.name })),
       keys: keys.map((k) => ({ id: k.id, name: k.name })),
+      cues: mapCues(cues, colors),
     });
 
     return readPlaylistTree(db);

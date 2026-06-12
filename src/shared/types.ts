@@ -37,11 +37,21 @@ export type SyncErrorKind = "not-found" | "unreadable";
 
 // ── Waveform types ────────────────────────────────────────────────────────────
 
+export interface CueMarker {
+  id: string;
+  positionSec: number;
+  endSec: number | null;   // loop out point; stored, not rendered in v1
+  kind: number;            // 0 = memory cue, 1-8 = hot cue A-H
+  color: string | null;    // "#RRGGBB" or null (UI applies defaults)
+  comment: string | null;
+}
+
 export interface WaveformData {
   peaks: number[] | null;
   duration: number | null;
   bpm: number | null;
   firstBeatSec: number;
+  cues: CueMarker[];
 }
 
 // ── Analysis types ────────────────────────────────────────────────────────────

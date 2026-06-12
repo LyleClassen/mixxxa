@@ -91,4 +91,16 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS cue (
+  id TEXT PRIMARY KEY,
+  content_id TEXT NOT NULL,
+  position_sec REAL NOT NULL,
+  end_sec REAL,
+  kind INTEGER NOT NULL,
+  color TEXT,
+  comment TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_cue_content ON cue(content_id);
 `;

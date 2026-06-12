@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
 import Minimap from "wavesurfer.js/plugins/minimap";
 import { Play, Pause, Volume2, ZoomIn, ZoomOut } from "lucide-react";
-import type { Track } from "../../../shared/types";
+import type { CueMarker, Track } from "../../../shared/types";
 import { electroview } from "../../rpc";
 import { BeatGridOverlay } from "./BeatGridOverlay";
+import { CueMarkersOverlay, CueMinimapTicks } from "./CueMarkersOverlay";
 
 const VOLUME_KEY = "mixxxa.volume";
 const ZOOM_KEY = "mixxxa.zoom";
@@ -32,7 +33,15 @@ interface BeatGrid {
   firstBeatSec: number;
 }
 
-export function WaveformPlayer({ track }: { track: Track | null }) {
+export interface WaveformPlayerHandle {
+  prevCue(): void;
+  nextCue(): void;
+}
+
+export const WaveformPlayer = forwardRef<
+  WaveformPlayerHandle,
+  { track: Track | null; onCuesChanged?: (count: number) => void }
+>(function WaveformPlayer({ track, onCuesChanged }, ref) {
   const overviewRef = useRef<HTMLDivElement>(null);
   const zoomedRef = useRef<HTMLDivElement>(null);
   // The trackId of the most recent load request — used to discard stale async
@@ -50,7 +59,30 @@ export function WaveformPlayer({ track }: { track: Track | null }) {
   });
   const [zoom, setZoom] = useState(loadSavedZoom);
   const [grid, setGrid] = useState<BeatGrid | null>(null);
+  const [cues, setCues] = useState<CueMarker[]>([]);
   const [error, setError] = useState(false);
+
+  function updateCues(next: CueMarker[]) {
+    setCues(next);
+    onCuesChanged?.(next.length);
+  }
+
+  useImperativeHandle(ref, () => ({
+    prevCue() {
+      if (!ws) return;
+      const t = ws.getCurrentTime();
+      // Larger epsilon than nextCue so repeated presses walk backwards
+      // through earlier cues during playback.
+      const target = [...cues].reverse().find((c) => c.positionSec < t - 0.5);
+      if (target) ws.setTime(target.positionSec);
+    },
+    nextCue() {
+      if (!ws) return;
+      const t = ws.getCurrentTime();
+      const target = cues.find((c) => c.positionSec > t + 0.05);
+      if (target) ws.setTime(target.positionSec);
+    },
+  }), [ws, cues]);
 
   // Create and destroy wavesurfer instance
   useEffect(() => {
@@ -175,6 +207,7 @@ export function WaveformPlayer({ track }: { track: Track | null }) {
       setIsPlaying(false);
       setError(false);
       setGrid(null);
+      updateCues([]);
       return;
     }
 
@@ -183,6 +216,7 @@ export function WaveformPlayer({ track }: { track: Track | null }) {
     setDuration(0);
     setIsPlaying(false);
     setGrid(null);
+    updateCues([]);
 
     const trackId = track.id;
     loadedTrackIdRef.current = trackId;
@@ -201,6 +235,7 @@ export function WaveformPlayer({ track }: { track: Track | null }) {
         if (wf?.bpm && wf.bpm > 0) {
           setGrid({ bpm: wf.bpm, firstBeatSec: wf.firstBeatSec });
         }
+        updateCues(wf?.cues ?? []);
         ws.load(
           url,
           wf?.peaks && wf.peaks.length > 0 ? [wf.peaks] : undefined,
@@ -254,11 +289,15 @@ export function WaveformPlayer({ track }: { track: Track | null }) {
 
         {/* Waveforms + time */}
         <div className="flex-1 flex flex-col gap-1 min-w-0">
-          {/* Overview (minimap) */}
-          <div
-            ref={overviewRef}
-            className="h-[36px] bg-muted/60 rounded-md overflow-hidden border border-border relative"
-          />
+          {/* Overview (minimap) — cue ticks are a sibling of the minimap
+              container because wavesurfer manages that container's children */}
+          <div className="relative">
+            <div
+              ref={overviewRef}
+              className="h-[36px] bg-muted/60 rounded-md overflow-hidden border border-border relative"
+            />
+            <CueMinimapTicks cues={cues} duration={duration} />
+          </div>
 
           {/* Zoomed waveform */}
           <div className="relative">
@@ -270,6 +309,11 @@ export function WaveformPlayer({ track }: { track: Track | null }) {
               ws={ws}
               bpm={grid?.bpm ?? null}
               firstBeatSec={grid?.firstBeatSec ?? 0}
+            />
+            <CueMarkersOverlay
+              ws={ws}
+              cues={cues}
+              onCueClick={(sec) => ws?.setTime(sec)}
             />
             {/* Fixed center playhead — the waveform scrolls beneath it */}
             <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-primary/70 pointer-events-none z-10" />
@@ -336,4 +380,4 @@ export function WaveformPlayer({ track }: { track: Track | null }) {
       </div>
     </div>
   );
-}
+});
