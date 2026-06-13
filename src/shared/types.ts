@@ -106,6 +106,46 @@ export interface HistoryEntry extends QueueItemTimings {
   finishedAt: number;
 }
 
+// ── Auto-cue types ────────────────────────────────────────────────────────────
+
+export interface AutoCueRule {
+  bpmMin: number;
+  bpmMax: number;
+  beatsBefore: number;
+}
+
+export interface AutoCueSettings {
+  rules: AutoCueRule[];
+  fallbackBeatsBefore: number;
+  confidenceThreshold: number;
+}
+
+export interface DropMarker {
+  time: number;       // seconds
+  confidence: number; // 0..1
+}
+
+export interface DropsResult {
+  drops: DropMarker[];
+  bpm?: number;
+  firstBeatSec?: number;
+  duration?: number;
+}
+
+export interface AutoCueResult {
+  cues: CueMarker[];     // full cue list for the track after insertion
+  dropsDetected: number; // drops above threshold
+  dropsUsed: number;     // drops that got cues (after dedupe + capacity cap)
+  undoAvailable: boolean;
+  computedBpm?: number;  // set when the sidecar had to detect BPM
+}
+
+export interface AutoCueProgress {
+  trackId: string;
+  step: string; // candidates | features | classify | bpm
+  pct: number;  // 0..1
+}
+
 // ── RPC ───────────────────────────────────────────────────────────────────────
 
 export type MixxxRPC = {
@@ -140,9 +180,17 @@ export type MixxxRPC = {
       claimAnalysisWork: { params: undefined; response: ClaimResponse | null };
       reportAnalysisProgress: { params: ProgressReport; response: void };
       reportAnalysisResult: { params: AnalysisResult; response: void };
+      // Cues — auto cue insertion + manual hot-cue editing
+      getAutoCueSettings: { params: undefined; response: AutoCueSettings };
+      setAutoCueSettings: { params: Partial<AutoCueSettings>; response: AutoCueSettings };
+      autoCueTrack: { params: { trackId: string }; response: AutoCueResult };
+      undoAutoCue: { params: { trackId: string }; response: CueMarker[] };
+      setHotCue: { params: { trackId: string; slot: number; positionSec: number }; response: CueMarker[] };
+      deleteHotCue: { params: { trackId: string; slot: number }; response: CueMarker[] };
     };
     messages: {
       analysisQueueUpdate: { queue: QueueItem[] };
+      autoCueProgress: AutoCueProgress;
     };
   }>;
   webview: RPCSchema<{ requests: {}; messages: {} }>;

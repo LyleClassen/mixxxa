@@ -3,7 +3,9 @@ ORBIT analysis sidecar — persistent newline-delimited JSON stdio loop.
 
 Protocol:
   Startup: prints {"ready": true} after importing orbit_dsp (librosa warmup).
-  Per request: reads one JSON line {"id": "...", "filePath": "...", "maxLength": <sec>}
+  Per request: reads one JSON line with an optional "task" discriminator:
+    (no task / "analyze"): {"id": "...", "filePath": "...", "maxLength": <sec>}
+    "drops": {"id": "...", "task": "drops", "filePath": "...", "threshold"?: <0..1>, "needBpm"?: bool}
   Per progress: writes {"id": "...", "progress": {"step": "...", "pct": <0..1>}} between steps.
   Per response: writes one JSON line {"id": "...", "result": {...}} or {"id": "...", "error": "..."}
 
@@ -104,7 +106,7 @@ def main() -> None:
             req = json.loads(line)
             req_id = req["id"]
             file_path = req["filePath"]
-            max_length = int(req.get("maxLength", 600))
+            task = req.get("task", "analyze")
 
             def emit_progress(step: str, pct: float) -> None:
                 sys.stdout.write(
@@ -112,7 +114,20 @@ def main() -> None:
                 )
                 sys.stdout.flush()
 
-            result = analyze(file_path, max_length, on_progress=emit_progress)
+            if task == "drops":
+                # Lazy import — keeps the ready handshake fast (xgboost/pandas
+                # load only when drop detection is first requested).
+                from drops import detect_drops
+
+                result = detect_drops(
+                    file_path,
+                    threshold=req.get("threshold"),
+                    need_bpm=bool(req.get("needBpm", False)),
+                    on_progress=emit_progress,
+                )
+            else:
+                max_length = int(req.get("maxLength", 600))
+                result = analyze(file_path, max_length, on_progress=emit_progress)
             sys.stdout.write(json.dumps({"id": req_id, "result": result}) + "\n")
         except Exception:
             err_msg = traceback.format_exc().strip().splitlines()[-1]

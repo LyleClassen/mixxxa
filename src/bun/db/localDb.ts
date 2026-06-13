@@ -92,6 +92,19 @@ export function getDb(dataDir: string): Database {
     }
   }
 
+  // Idempotent migration: add source/dirty to cue (locally-created cue tracking)
+  {
+    const present = new Set(
+      db.query<{ name: string }, []>("PRAGMA table_info(cue)").all().map((c) => c.name),
+    );
+    if (!present.has("source")) {
+      db.exec("ALTER TABLE cue ADD COLUMN source TEXT NOT NULL DEFAULT 'rekordbox'");
+    }
+    if (!present.has("dirty")) {
+      db.exec("ALTER TABLE cue ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0");
+    }
+  }
+
   return db;
 }
 
@@ -346,6 +359,86 @@ export function appendAnalysisHistory(database: Database, entry: {
   );
 }
 
+// ── Cue helpers ───────────────────────────────────────────────────────────────
+
+type CueDbRow = {
+  id: string;
+  position_sec: number;
+  end_sec: number | null;
+  kind: number;
+  color: string | null;
+  comment: string | null;
+};
+
+/** Full cue row including local-tracking columns — used for undo snapshots. */
+export interface CueRow extends CueDbRow {
+  content_id: string;
+  source: string;
+  dirty: number;
+}
+
+function cueRowToMarker(c: CueDbRow): CueMarker {
+  return {
+    id: c.id,
+    positionSec: c.position_sec,
+    endSec: c.end_sec,
+    kind: c.kind,
+    color: c.color,
+    comment: c.comment,
+  };
+}
+
+export function readTrackCues(database: Database, trackId: string): CueMarker[] {
+  // Sorted ascending — overlays and slot listings rely on this order.
+  const rows = database.query<CueDbRow, [string]>(
+    "SELECT id, position_sec, end_sec, kind, color, comment FROM cue WHERE content_id = ? ORDER BY position_sec ASC"
+  ).all(trackId);
+  return rows.map(cueRowToMarker);
+}
+
+export function readTrackCueRows(database: Database, trackId: string): CueRow[] {
+  return database.query<CueRow, [string]>(
+    "SELECT id, content_id, position_sec, end_sec, kind, color, comment, source, dirty FROM cue WHERE content_id = ? ORDER BY position_sec ASC"
+  ).all(trackId);
+}
+
+/** Replace the hot cue in `slot` (kind 1-8) with a locally-created, dirty cue. */
+export function upsertHotCue(
+  database: Database,
+  trackId: string,
+  slot: number,
+  positionSec: number,
+  color: string | null,
+  comment: string | null,
+): void {
+  const tx = database.transaction(() => {
+    database.run("DELETE FROM cue WHERE content_id = ? AND kind = ?", [trackId, slot]);
+    database.run(
+      "INSERT INTO cue (id, content_id, position_sec, end_sec, kind, color, comment, source, dirty) VALUES (?, ?, ?, ?, ?, ?, ?, 'local', 1)",
+      [crypto.randomUUID(), trackId, positionSec, null, slot, color, comment],
+    );
+  });
+  tx();
+}
+
+export function deleteHotCue(database: Database, trackId: string, slot: number): void {
+  database.run("DELETE FROM cue WHERE content_id = ? AND kind = ?", [trackId, slot]);
+}
+
+/** Transactionally restore a track's cue rows verbatim (undo). */
+export function replaceTrackCueRows(database: Database, trackId: string, rows: CueRow[]): void {
+  const tx = database.transaction(() => {
+    database.run("DELETE FROM cue WHERE content_id = ?", [trackId]);
+    const insert = database.prepare(
+      "INSERT INTO cue (id, content_id, position_sec, end_sec, kind, color, comment, source, dirty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    for (const r of rows) {
+      insert.run(r.id, r.content_id, r.position_sec, r.end_sec, r.kind, r.color, r.comment, r.source, r.dirty);
+    }
+  });
+  tx();
+}
+
 // ── Waveform helpers ──────────────────────────────────────────────────────────
 
 export interface WaveformDataRow {
@@ -378,32 +471,12 @@ export function readWaveformData(database: Database, trackId: string): WaveformD
     }
   }
 
-  type CueRow = {
-    id: string;
-    position_sec: number;
-    end_sec: number | null;
-    kind: number;
-    color: string | null;
-    comment: string | null;
-  };
-  // Sorted ascending — prev/next cue navigation relies on this order.
-  const cueRows = database.query<CueRow, [string]>(
-    "SELECT id, position_sec, end_sec, kind, color, comment FROM cue WHERE content_id = ? ORDER BY position_sec ASC"
-  ).all(trackId);
-
   return {
     peaks,
     duration: row.waveform_duration ?? null,
     bpm: row.analyzed_bpm ?? (row.bpm != null ? row.bpm / 100 : null),
     firstBeatSec: row.analyzed_first_beat_sec ?? 0,
-    cues: cueRows.map((c) => ({
-      id: c.id,
-      positionSec: c.position_sec,
-      endSec: c.end_sec,
-      kind: c.kind,
-      color: c.color,
-      comment: c.comment,
-    })),
+    cues: readTrackCues(database, trackId),
   };
 }
 
@@ -477,6 +550,12 @@ interface LibraryData {
 
 export function replaceLibrary(database: Database, data: LibraryData): void {
   const tx = database.transaction(() => {
+    // Locally-created cues survive a re-sync — Rekordbox doesn't know about
+    // them yet (write-back reconciles later).
+    const localCues = database.query<CueRow, []>(
+      "SELECT id, content_id, position_sec, end_sec, kind, color, comment, source, dirty FROM cue WHERE source = 'local'"
+    ).all();
+
     database.exec("DELETE FROM playlist_song");
     database.exec("DELETE FROM playlist");
     database.exec("DELETE FROM content");
@@ -520,6 +599,22 @@ export function replaceLibrary(database: Database, data: LibraryData): void {
     );
     for (const c of data.cues) {
       insertCue.run(c.id, c.content_id, c.position_sec, c.end_sec, c.kind, c.color, c.comment);
+    }
+
+    // Re-insert local cues whose track still exists. Local dirty cues win hot-cue
+    // slot conflicts against incoming Rekordbox cues — they represent newer local
+    // intent; the future write-back stage reconciles the divergence.
+    const trackIds = new Set(data.contents.map((c) => c.id));
+    const deleteSlotCue = database.prepare(
+      "DELETE FROM cue WHERE content_id = ? AND kind = ?"
+    );
+    const insertLocalCue = database.prepare(
+      "INSERT INTO cue (id, content_id, position_sec, end_sec, kind, color, comment, source, dirty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    for (const c of localCues) {
+      if (!trackIds.has(c.content_id)) continue;
+      if (c.kind > 0) deleteSlotCue.run(c.content_id, c.kind);
+      insertLocalCue.run(c.id, c.content_id, c.position_sec, c.end_sec, c.kind, c.color, c.comment, c.source, c.dirty);
     }
   });
 

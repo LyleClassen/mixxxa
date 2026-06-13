@@ -16,6 +16,7 @@ export interface TrackTableProps {
   onTrackDoubleClick: (track: Track) => void;
   onAnalyzeTrack?: (track: Track) => void;
   onAnalyzePlaylist?: (playlistId: string) => void;
+  onAutoCue?: (track: Track) => void;
   storageKey: string;
   currentPlaylistId: string | null;
   // Reorder support — enabled only for real playlists (not the Collection view).
@@ -33,6 +34,7 @@ export function TrackTable({
   onTrackDoubleClick,
   onAnalyzeTrack,
   onAnalyzePlaylist,
+  onAutoCue,
   storageKey,
   currentPlaylistId,
   reorderable = false,
@@ -179,6 +181,7 @@ export function TrackTable({
           playlistId={currentPlaylistId}
           onAnalyzeTrack={onAnalyzeTrack ?? (() => {})}
           onAnalyzePlaylist={onAnalyzePlaylist ?? (() => {})}
+          onAutoCue={onAutoCue}
           onClose={() => setRowMenu(null)}
         />
       )}

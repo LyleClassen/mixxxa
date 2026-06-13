@@ -99,7 +99,9 @@ CREATE TABLE IF NOT EXISTS cue (
   end_sec REAL,
   kind INTEGER NOT NULL,
   color TEXT,
-  comment TEXT
+  comment TEXT,
+  source TEXT NOT NULL DEFAULT 'rekordbox',
+  dirty INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_cue_content ON cue(content_id);

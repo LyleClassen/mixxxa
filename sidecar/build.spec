@@ -19,6 +19,8 @@ numba_datas, numba_binaries, numba_hiddenimports = collect_all("numba")
 sklearn_datas, sklearn_binaries, sklearn_hiddenimports = collect_all("sklearn")
 scipy_datas, scipy_binaries, scipy_hiddenimports = collect_all("scipy")
 orbit_datas, orbit_binaries, orbit_hiddenimports = collect_all("orbit_dsp")
+xgboost_datas, xgboost_binaries, xgboost_hiddenimports = collect_all("xgboost")
+pandas_datas, pandas_binaries, pandas_hiddenimports = collect_all("pandas")
 
 a = Analysis(
     ["main.py"],
@@ -26,14 +28,21 @@ a = Analysis(
     binaries=(
         librosa_binaries + numba_binaries + sklearn_binaries
         + scipy_binaries + orbit_binaries
+        + xgboost_binaries + pandas_binaries
     ),
     datas=(
         librosa_datas + numba_datas + sklearn_datas
         + scipy_datas + orbit_datas
+        + xgboost_datas + pandas_datas
+        + [("dropdetect/model.joblib", "dropdetect")]
     ),
     hiddenimports=(
         librosa_hiddenimports + numba_hiddenimports + sklearn_hiddenimports
         + scipy_hiddenimports + orbit_hiddenimports
+        + xgboost_hiddenimports + pandas_hiddenimports
+        # drops.py is lazy-imported by main.py, so PyInstaller's static
+        # analysis won't discover it (or the vendored dropdetect package).
+        + ["drops", "dropdetect", "dropdetect.processors", "dropdetect.utilities"]
     ),
     hookspath=[],
     hooksconfig={},

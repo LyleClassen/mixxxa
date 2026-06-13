@@ -10,10 +10,11 @@ interface RowContextMenuProps {
   playlistId: string | null;
   onAnalyzeTrack: (track: Track) => void;
   onAnalyzePlaylist: (playlistId: string) => void;
+  onAutoCue?: (track: Track) => void;
   onClose: () => void;
 }
 
-export function RowContextMenu({ pos, track, playlistId, onAnalyzeTrack, onAnalyzePlaylist, onClose }: RowContextMenuProps) {
+export function RowContextMenu({ pos, track, playlistId, onAnalyzeTrack, onAnalyzePlaylist, onAutoCue, onClose }: RowContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   useDismissable(ref, onClose);
 
@@ -29,6 +30,15 @@ export function RowContextMenu({ pos, track, playlistId, onAnalyzeTrack, onAnaly
       >
         Analyze track
       </button>
+      {onAutoCue && (
+        <button
+          onClick={() => { onAutoCue(track); onClose(); }}
+          disabled={!track.filePath}
+          className="w-full flex items-center px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors text-left disabled:opacity-40 disabled:hover:bg-transparent"
+        >
+          Auto cue points…
+        </button>
+      )}
       {playlistId && (
         <button
           onClick={() => { onAnalyzePlaylist(playlistId); onClose(); }}

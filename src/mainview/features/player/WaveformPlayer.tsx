@@ -34,13 +34,14 @@ interface BeatGrid {
 }
 
 export interface WaveformPlayerHandle {
-  prevCue(): void;
-  nextCue(): void;
+  getCurrentTime(): number;
+  seekTo(sec: number): void;
+  setCues(cues: CueMarker[]): void;
 }
 
 export const WaveformPlayer = forwardRef<
   WaveformPlayerHandle,
-  { track: Track | null; onCuesChanged?: (count: number) => void }
+  { track: Track | null; onCuesChanged?: (cues: CueMarker[]) => void }
 >(function WaveformPlayer({ track, onCuesChanged }, ref) {
   const overviewRef = useRef<HTMLDivElement>(null);
   const zoomedRef = useRef<HTMLDivElement>(null);
@@ -64,25 +65,22 @@ export const WaveformPlayer = forwardRef<
 
   function updateCues(next: CueMarker[]) {
     setCues(next);
-    onCuesChanged?.(next.length);
+    onCuesChanged?.(next);
   }
 
   useImperativeHandle(ref, () => ({
-    prevCue() {
-      if (!ws) return;
-      const t = ws.getCurrentTime();
-      // Larger epsilon than nextCue so repeated presses walk backwards
-      // through earlier cues during playback.
-      const target = [...cues].reverse().find((c) => c.positionSec < t - 0.5);
-      if (target) ws.setTime(target.positionSec);
+    getCurrentTime() {
+      return ws?.getCurrentTime() ?? 0;
     },
-    nextCue() {
-      if (!ws) return;
-      const t = ws.getCurrentTime();
-      const target = cues.find((c) => c.positionSec > t + 0.05);
-      if (target) ws.setTime(target.positionSec);
+    seekTo(sec: number) {
+      ws?.setTime(sec);
     },
-  }), [ws, cues]);
+    setCues(next: CueMarker[]) {
+      // Driven by App after a hot-cue edit — feeds the existing overlay/minimap
+      // update path without re-notifying App (which already has the new cues).
+      setCues(next);
+    },
+  }), [ws]);
 
   // Create and destroy wavesurfer instance
   useEffect(() => {

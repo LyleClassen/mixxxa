@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings } from "../shared/types";
+import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings, CueMarker, AutoCueProgress } from "../shared/types";
 import { electroview } from "./rpc";
 import { WaveformPlayer, type WaveformPlayerHandle } from "./features/player/WaveformPlayer";
+import { HotCueGrid } from "./features/player/HotCueGrid";
+import { AutoCueModal } from "./features/player/AutoCueModal";
 import { TrackTable } from "./features/track-table";
 import { AnalysisPanel } from "./features/analysis/AnalysisPanel";
 import { SettingsPage } from "./features/settings/SettingsPage";
@@ -10,8 +12,6 @@ import { useDebounce } from "./hooks/useDebounce";
 import { initWorkerPool, setPoolSize } from "./analysis/workerPool";
 
 import {
-  SkipBack,
-  SkipForward,
   Search,
   Disc3,
   Piano,
@@ -40,7 +40,9 @@ function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loadedTrack, setLoadedTrack] = useState<Track | null>(null);
   const playerRef = useRef<WaveformPlayerHandle>(null);
-  const [cueCount, setCueCount] = useState(0);
+  const [cues, setCues] = useState<CueMarker[]>([]);
+  const [autoCueModalTrack, setAutoCueModalTrack] = useState<Track | null>(null);
+  const [autoCueProgress, setAutoCueProgress] = useState<{ step: string; pct: number } | null>(null);
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [syncError, setSyncError] = useState<SyncErrorKind | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -108,6 +110,22 @@ function App() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPlaylistId]);
+
+  // Subscribe to auto-cue progress, scoped to the track in the modal.
+  useEffect(() => {
+    if (!electroview.rpc) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyRpc = electroview.rpc as any;
+    const handler = (msg: AutoCueProgress) => {
+      if (msg.trackId === autoCueModalTrack?.id) {
+        setAutoCueProgress({ step: msg.step, pct: msg.pct });
+      }
+    };
+    anyRpc.addMessageListener("autoCueProgress", handler);
+    return () => {
+      anyRpc.removeMessageListener("autoCueProgress", handler);
+    };
+  }, [autoCueModalTrack?.id]);
 
   function reloadTracks() {
     if (selectedPlaylistId === COLLECTION_ID) {
@@ -266,6 +284,38 @@ function App() {
     setRightPanel((cur) => cur === panel ? null : panel);
   }
 
+  // ── Hot-cue actions ─────────────────────────────────────────────────────────
+
+  // Apply a fresh cue list to App state + the player overlay. Only acts when the
+  // edited track is the one currently loaded.
+  const applyCuesIfLoaded = useCallback((trackId: string, next: CueMarker[]) => {
+    if (loadedTrack?.id !== trackId) return;
+    setCues(next);
+    playerRef.current?.setCues(next);
+  }, [loadedTrack?.id]);
+
+  const handleCueJump = useCallback((_slot: number, positionSec: number) => {
+    playerRef.current?.seekTo(positionSec);
+  }, []);
+
+  const handleCueSet = useCallback(async (slot: number) => {
+    if (!loadedTrack) return;
+    const positionSec = playerRef.current?.getCurrentTime() ?? 0;
+    const next = await electroview.rpc!.request.setHotCue({ trackId: loadedTrack.id, slot, positionSec });
+    applyCuesIfLoaded(loadedTrack.id, next);
+  }, [loadedTrack, applyCuesIfLoaded]);
+
+  const handleCueDelete = useCallback(async (slot: number) => {
+    if (!loadedTrack) return;
+    const next = await electroview.rpc!.request.deleteHotCue({ trackId: loadedTrack.id, slot });
+    applyCuesIfLoaded(loadedTrack.id, next);
+  }, [loadedTrack, applyCuesIfLoaded]);
+
+  const handleAutoCue = useCallback((track: Track) => {
+    setAutoCueProgress(null);
+    setAutoCueModalTrack(track);
+  }, []);
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
@@ -409,7 +459,7 @@ function App() {
 
             {/* Player Section */}
             <section className="p-6 border-b border-border bg-card/50 flex flex-col gap-4 shrink-0">
-              <WaveformPlayer ref={playerRef} track={loadedTrack} onCuesChanged={setCueCount} />
+              <WaveformPlayer ref={playerRef} track={loadedTrack} onCuesChanged={setCues} />
 
               <div className="flex items-end justify-between">
                 <div>
@@ -436,22 +486,16 @@ function App() {
                       )}
                     </div>
                     <div className="flex items-center gap-3 ml-4 border-l border-border pl-6">
-                      <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Cue Points</span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => playerRef.current?.prevCue()}
-                          disabled={cueCount === 0}
-                          title="Previous cue"
-                          className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors disabled:opacity-40"
-                        ><SkipBack size={14} /></button>
-                        <button
-                          onClick={() => playerRef.current?.nextCue()}
-                          disabled={cueCount === 0}
-                          title="Next cue"
-                          className="w-6 h-6 flex items-center justify-center bg-muted rounded hover:bg-muted/80 text-muted-foreground transition-colors disabled:opacity-40"
-                        ><SkipForward size={14} /></button>
+                      <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Hot Cues</span>
+                      <div className="w-48">
+                        <HotCueGrid
+                          cues={cues}
+                          onJump={handleCueJump}
+                          onSet={handleCueSet}
+                          onDelete={handleCueDelete}
+                          disabled={!loadedTrack}
+                        />
                       </div>
-                      <Button variant="outline" size="sm" className="h-7 text-xs border-dashed text-muted-foreground hover:text-foreground">ADD CUE</Button>
                     </div>
                     <div className="flex items-center gap-2 ml-4 border-l border-border pl-6">
                       <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Virtual Piano</span>
@@ -505,6 +549,7 @@ function App() {
                     onTrackDoubleClick={setLoadedTrack}
                     onAnalyzeTrack={handleAnalyzeTrack}
                     onAnalyzePlaylist={handleAnalyzePlaylist}
+                    onAutoCue={handleAutoCue}
                     storageKey="mixxxa.trackTableColumns"
                     currentPlaylistId={selectedPlaylistId === COLLECTION_ID ? null : selectedPlaylistId}
                     reorderable={selectedPlaylistId !== COLLECTION_ID}
@@ -558,6 +603,15 @@ function App() {
         </div>
 
       </main>
+
+      {autoCueModalTrack && (
+        <AutoCueModal
+          track={autoCueModalTrack}
+          progress={autoCueProgress}
+          onClose={() => setAutoCueModalTrack(null)}
+          onCuesApplied={applyCuesIfLoaded}
+        />
+      )}
     </div>
   );
 }

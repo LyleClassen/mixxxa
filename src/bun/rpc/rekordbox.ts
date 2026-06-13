@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import type { PlaylistNode, Track, SyncErrorKind } from "../../shared/types";
 import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks, readAllTracks, reorderPlaylistTracks } from "../db/localDb";
 import { getAudioServerPort } from "../audioServer";
+import { CUE_COLOR_TABLE } from "../../shared/cueColors";
 
 let dataDir: string;
 
@@ -25,18 +26,6 @@ function makeSyncError(kind: SyncErrorKind, message: string): Error {
   (err as Error & { syncErrorKind: SyncErrorKind }).syncErrorKind = kind;
   return err;
 }
-
-// Standard Rekordbox hot-cue palette, keyed by colorTableIndex.
-const CUE_COLOR_TABLE: Record<number, string> = {
-  1: "#F870F8",
-  2: "#F80000",
-  3: "#F8A030",
-  4: "#C3AF04",
-  5: "#28E214",
-  6: "#25FDE9",
-  7: "#0672F8",
-  8: "#B432F8",
-};
 
 function normalizeColorCode(code: string | undefined): string | null {
   if (!code) return null;

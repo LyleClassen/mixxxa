@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Subprocess } from "bun";
+import type { DropsResult } from "../../shared/types";
 import { bunLog } from "../bunLog";
 
 // ── Path resolution ──────────────────────────────────────────────────────────
@@ -66,15 +67,19 @@ let ready = false;
 let failureCount = 0;
 const MAX_FAILURES = 3;
 
+// Tag on each pending entry — selects how readLoop maps the raw result
+type SidecarTask = "analyze" | "drops";
+
 // Pending RPC calls awaiting a response from the sidecar
 const pending = new Map<string, {
-  resolve: (r: OrbitResult) => void;
+  task: SidecarTask;
+  resolve: (r: unknown) => void;
   reject: (e: Error) => void;
   onProgress?: OrbitProgressCallback;
 }>();
 
 // In-flight mutex: only one request at a time in v1
-let inflight: Promise<OrbitResult> | null = null;
+let inflight: Promise<unknown> | null = null;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -100,27 +105,48 @@ export interface OrbitResult {
 /** Called with the current step name and overall progress fraction (0..1). */
 export type OrbitProgressCallback = (step: string, pct: number) => void;
 
+interface AnalyzeRawResult {
+  bpm: { value: number };
+  key: { key: string; mode: string };
+  energy: number;
+  loudness_db: number;
+  dynamic_range_db: number;
+  danceability: number;
+  duration: number;
+  timings?: {
+    decode_ms: number;
+    bpm_ms: number;
+    key_ms: number;
+    features_ms: number;
+    total_ms: number;
+  };
+}
+
 interface SidecarResponse {
   id: string;
-  result?: {
-    bpm: { value: number };
-    key: { key: string; mode: string };
-    energy: number;
-    loudness_db: number;
-    dynamic_range_db: number;
-    danceability: number;
-    duration: number;
-    timings?: {
-      decode_ms: number;
-      bpm_ms: number;
-      key_ms: number;
-      features_ms: number;
-      total_ms: number;
-    };
-  };
+  result?: unknown;
   progress?: { step: string; pct: number };
   error?: string;
   ready?: boolean;
+}
+
+function mapAnalyzeResult(r: AnalyzeRawResult): OrbitResult {
+  return {
+    bpm: r.bpm.value,
+    key: `${r.key.key} ${r.key.mode}`,
+    energy: r.energy,
+    loudnessDb: r.loudness_db,
+    dynamicRangeDb: r.dynamic_range_db,
+    danceability: r.danceability,
+    durationSec: r.duration,
+    timings: {
+      decodeMs: r.timings?.decode_ms ?? 0,
+      bpmMs: r.timings?.bpm_ms ?? 0,
+      keyMs: r.timings?.key_ms ?? 0,
+      featuresMs: r.timings?.features_ms ?? 0,
+      totalMs: r.timings?.total_ms ?? 0,
+    },
+  };
 }
 
 // ── Process management ───────────────────────────────────────────────────────
@@ -202,23 +228,13 @@ async function readLoop(p: Subprocess<"pipe", "pipe", "pipe">): Promise<void> {
           if (msg.error) {
             pend.reject(new Error(msg.error));
           } else if (msg.result) {
-            const r = msg.result;
-            pend.resolve({
-              bpm: r.bpm.value,
-              key: `${r.key.key} ${r.key.mode}`,
-              energy: r.energy,
-              loudnessDb: r.loudness_db,
-              dynamicRangeDb: r.dynamic_range_db,
-              danceability: r.danceability,
-              durationSec: r.duration,
-              timings: {
-                decodeMs: r.timings?.decode_ms ?? 0,
-                bpmMs: r.timings?.bpm_ms ?? 0,
-                keyMs: r.timings?.key_ms ?? 0,
-                featuresMs: r.timings?.features_ms ?? 0,
-                totalMs: r.timings?.total_ms ?? 0,
-              },
-            });
+            // The drops task's result is already in wire shape (DropsResult);
+            // analyze needs the snake_case → camelCase mapping.
+            pend.resolve(
+              pend.task === "analyze"
+                ? mapAnalyzeResult(msg.result as AnalyzeRawResult)
+                : msg.result,
+            );
           }
         } catch {}
       }
@@ -257,12 +273,16 @@ async function ensureRunning(): Promise<void> {
   }
 }
 
-async function sendRequest(filePath: string, maxLength: number, onProgress?: OrbitProgressCallback): Promise<OrbitResult> {
+async function sendRequest(
+  task: SidecarTask,
+  payload: Record<string, unknown>,
+  onProgress?: OrbitProgressCallback,
+): Promise<unknown> {
   const id = randomUUID();
-  const line = JSON.stringify({ id, filePath, maxLength }) + "\n";
+  const line = JSON.stringify({ id, ...payload }) + "\n";
 
-  return new Promise<OrbitResult>((resolve, reject) => {
-    pending.set(id, { resolve, reject, onProgress });
+  return new Promise<unknown>((resolve, reject) => {
+    pending.set(id, { task, resolve, reject, onProgress });
     try {
       proc!.stdin.write(line);
     } catch (err) {
@@ -273,10 +293,17 @@ async function sendRequest(filePath: string, maxLength: number, onProgress?: Orb
 }
 
 /**
- * Analyze a track with ORBIT. Lazily spawns the sidecar on first call.
- * Serializes requests (one at a time) and restarts on crash.
+ * Run one sidecar request through the shared mutex/ensureRunning/restart
+ * machinery. Lazily spawns the sidecar on first call, serializes requests
+ * (one at a time), and marks the process dead on error so the next call
+ * restarts it.
  */
-export async function analyzeOrbit(filePath: string, maxLength: number, onProgress?: OrbitProgressCallback): Promise<OrbitResult> {
+async function runSerialized<T>(
+  task: SidecarTask,
+  filePath: string,
+  payload: Record<string, unknown>,
+  onProgress?: OrbitProgressCallback,
+): Promise<T> {
   // Wait for any in-flight request to finish before starting a new one
   while (inflight) {
     try { await inflight; } catch { /* ignore errors from previous calls */ }
@@ -285,14 +312,14 @@ export async function analyzeOrbit(filePath: string, maxLength: number, onProgre
   inflight = (async () => {
     await ensureRunning();
     const name = basename(filePath);
-    bunLog("SIDECAR", `analyze start: ${name}`);
+    bunLog("SIDECAR", `${task} start: ${name}`);
     const t0 = Date.now();
     try {
-      const result = await sendRequest(filePath, maxLength, onProgress);
-      bunLog("SIDECAR", `analyze done: ${name} bpm=${result.bpm.toFixed(1)} key=${result.key} (${Date.now() - t0}ms)`);
+      const result = await sendRequest(task, payload, onProgress);
+      bunLog("SIDECAR", `${task} done: ${name} (${Date.now() - t0}ms)`);
       return result;
     } catch (err) {
-      bunLog("SIDECAR", `analyze error: ${name} — ${err}`);
+      bunLog("SIDECAR", `${task} error: ${name} — ${err}`);
       proc = null;
       ready = false;
       throw err;
@@ -300,10 +327,29 @@ export async function analyzeOrbit(filePath: string, maxLength: number, onProgre
   })();
 
   try {
-    return await inflight;
+    return (await inflight) as T;
   } finally {
     inflight = null;
   }
+}
+
+/** Analyze a track with ORBIT. */
+export async function analyzeOrbit(filePath: string, maxLength: number, onProgress?: OrbitProgressCallback): Promise<OrbitResult> {
+  return runSerialized<OrbitResult>("analyze", filePath, { filePath, maxLength }, onProgress);
+}
+
+/** Detect drops in a track (vendored drop-detector model in the sidecar). */
+export async function detectDrops(
+  filePath: string,
+  opts: { threshold?: number; needBpm?: boolean } = {},
+  onProgress?: OrbitProgressCallback,
+): Promise<DropsResult> {
+  return runSerialized<DropsResult>("drops", filePath, {
+    task: "drops",
+    filePath,
+    ...(opts.threshold !== undefined ? { threshold: opts.threshold } : {}),
+    ...(opts.needBpm ? { needBpm: true } : {}),
+  }, onProgress);
 }
 
 /** Gracefully terminate the sidecar if running. */
