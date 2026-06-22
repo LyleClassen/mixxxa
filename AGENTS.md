@@ -121,6 +121,31 @@ so the frozen binary is viable on Windows.
 sklearn, and scipy to capture data files that PyInstaller misses otherwise.
 Test the frozen exe standalone before wiring into the full app build.
 
+## Rekordbox write-back
+
+Mixxxa mirrors Rekordbox into a local SQLite db and can write changes back to
+`master.db` (see the `rekordbox-write-back` capability). Two rules when touching
+this area:
+
+- **Any new Mixxxa-side edit to a Rekordbox-mirrored field must be wired into
+  write-back.** If you let users change something that exists in Rekordbox —
+  track titles, comments, ratings, colors, key, BPM, playlist ordering, etc. —
+  it must show up in the write-back diff and be applied via the appropriate
+  `rbox-js` write API (`updateContent`, `updateContentKey`, `movePlaylistSong`,
+  …). Don't add an editable mirrored field that silently can't be synced back.
+- **Writes are guarded and reversible.** Never write while Rekordbox is running
+  (`isRekordboxRunning()`), always create a timestamped backup before
+  overwriting `master.db`, and don't use `setUnsafeWrites(true)`.
+
+## Long-running processes need progress
+
+Any potentially long-running operation (record-by-record write-back, analysis,
+backup/restore of large files, etc.) MUST report progress to the user rather
+than appearing frozen. Use the existing broadcast pattern — `rpc.send.<name>(…)`
+from the bun process (see `autoCueProgress`/`analysisQueueUpdate` in
+[src/bun/index.ts](src/bun/index.ts)) — and render a determinate indicator in
+the view.
+
 ## Gotchas
 
 - The Vite dev server is plain HTTP on `:5173`; the bun process probes
