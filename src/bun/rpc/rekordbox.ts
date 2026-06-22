@@ -1,30 +1,15 @@
 import { MasterDb, isRekordboxRunning } from "rbox-js";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
-import type { PlaylistNode, Track, SyncErrorKind } from "../../shared/types";
+import type { PlaylistNode, Track } from "../../shared/types";
 import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks, readAllTracks, reorderPlaylistTracks } from "../db/localDb";
 import { getAudioServerPort } from "../audioServer";
 import { CUE_COLOR_TABLE } from "../../shared/cueColors";
+import { getDefaultMasterDbPath, makeSyncError } from "./rekordboxShared";
 
 let dataDir: string;
 
 export function initRekordboxHandlers(appDataDir: string): void {
   dataDir = appDataDir;
-}
-
-function getDefaultMasterDbPath(): string {
-  if (process.platform === "win32") {
-    const appdata = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
-    return join(appdata, "Pioneer", "rekordbox", "master.db");
-  }
-  return join(homedir(), "Library", "Pioneer", "rekordbox", "master.db");
-}
-
-function makeSyncError(kind: SyncErrorKind, message: string): Error {
-  const err = new Error(message);
-  (err as Error & { syncErrorKind: SyncErrorKind }).syncErrorKind = kind;
-  return err;
 }
 
 function normalizeColorCode(code: string | undefined): string | null {

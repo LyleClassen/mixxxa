@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { MixxxRPC } from "../shared/types";
 import { rpcHandlers } from "./rpc/index";
 import { initRekordboxHandlers } from "./rpc/rekordbox";
+import { initWriteBackHandlers, initWriteBack } from "./rpc/rekordbox-writeback";
 import { initAnalysisHandlers } from "./rpc/analysis";
 import { initWaveformHandlers } from "./rpc/waveform";
 import { initCueHandlers, initCues } from "./rpc/cues";
@@ -32,6 +33,7 @@ async function getMainViewUrl(): Promise<string> {
 }
 
 initRekordboxHandlers(Utils.paths.userData);
+initWriteBackHandlers(Utils.paths.userData);
 initAnalysisHandlers(Utils.paths.userData);
 initWaveformHandlers(Utils.paths.userData);
 initCueHandlers(Utils.paths.userData);
@@ -56,6 +58,10 @@ initAnalysis(db, (items) => {
 
 initCues((p) => {
   rpc.send.autoCueProgress(p);
+});
+
+initWriteBack((p) => {
+  rpc.send.writeBackProgress(p);
 });
 
 const url = await getMainViewUrl();

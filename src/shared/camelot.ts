@@ -1,17 +1,124 @@
-// Camelot wheel mapping: "Note scale" → Camelot notation
-// Used by both the Essentia renderer worker and the ORBIT Bun-side engine.
-export const CAMELOT_MAP: Record<string, string> = {
-  "C major": "8B", "G major": "9B", "D major": "10B", "A major": "11B",
-  "E major": "12B", "B major": "1B", "F# major": "2B", "Db major": "3B",
-  "Ab major": "4B", "Eb major": "5B", "Bb major": "6B", "F major": "7B",
-  "A minor": "8A", "E minor": "9A", "B minor": "10A", "F# minor": "11A",
-  "C# minor": "12A", "G# minor": "1A", "D# minor": "2A", "Bb minor": "3A",
-  "F minor": "4A", "C minor": "5A", "G minor": "6A", "D minor": "7A",
+// Key notation conversion. Single source of truth used by both the Essentia
+// renderer worker and the ORBIT Bun-side engine to normalise analysed keys to
+// Camelot, and by the renderer to display any stored key in the user's chosen
+// notation (Camelot / Musical / Open Key).
+import type { KeyNotation } from "./types";
+
+// Natural-note pitch classes; accidentals are applied on top.
+const NOTE_BASE: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
+
+/** Parse a note like "C", "C#", "Db", "F♯" to a pitch class 0-11, or null. */
+function parsePitchClass(note: string): number | null {
+  const m = /^([a-g])([#b♯♭]*)$/i.exec(note.trim());
+  if (!m) return null;
+  let pc = NOTE_BASE[m[1].toLowerCase()];
+  for (const ch of m[2]) {
+    if (ch === "#" || ch === "♯") pc += 1;
+    else if (ch === "b" || ch === "♭") pc -= 1;
+  }
+  return ((pc % 12) + 12) % 12;
+}
+
+/** Map a scale word ("major"/"maj"/"M"/"" → B, "minor"/"min"/"m" → A). */
+function parseMode(scale: string): Mode {
+  const s = scale.trim().toLowerCase();
+  if (s.startsWith("min") || s === "m") return "A";
+  return "B"; // major / maj / "" all map to major
+}
+
+// Camelot wheel number (1-12) for each pitch class. Enharmonic spellings
+// (C#/Db, D#/Eb, …) collapse to one slot, so any spelling resolves correctly.
+const majorCamelot: number[] = [8, 3, 10, 5, 12, 7, 2, 9, 4, 11, 6, 1];
+const minorCamelot: number[] = [5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10];
+
+// Canonical note spellings per Camelot number (1-12), for Musical display.
+const MAJOR_NOTE: Record<number, string> = {
+  1: "B", 2: "F#", 3: "Db", 4: "Ab", 5: "Eb", 6: "Bb",
+  7: "F", 8: "C", 9: "G", 10: "D", 11: "A", 12: "E",
+};
+const MINOR_NOTE: Record<number, string> = {
+  1: "G#", 2: "D#", 3: "Bb", 4: "F", 5: "C", 6: "G",
+  7: "D", 8: "A", 9: "E", 10: "B", 11: "F#", 12: "C#",
 };
 
+/**
+ * Normalise an analysed key (note + scale, any enharmonic spelling) to Camelot.
+ * Falls back to `"${key} ${scale}"` only when the note can't be parsed.
+ */
 export function normalizeKey(key: string, scale: string): string {
-  const full = `${key} ${scale}`;
-  return CAMELOT_MAP[full] ?? full;
+  const pc = parsePitchClass(key);
+  if (pc != null) {
+    const mode = parseMode(scale);
+    const n = mode === "A" ? minorCamelot[pc] : majorCamelot[pc];
+    return formatCamelot({ n, mode });
+  }
+  // Note unparseable on its own — maybe the value already encodes its scale.
+  const any = parseAnyKey(`${key} ${scale}`.trim()) ?? parseAnyKey(key);
+  return any ? formatCamelot(any) : `${key} ${scale}`.trim();
+}
+
+/**
+ * Recognise a key written in Camelot (`12A`/`12B`), Open Key (`\d{1,2}[dm]`), or
+ * musical (`A`–`G` + accidental + mode) notation. These three forms don't
+ * collide. Returns the resolved `CamelotKey`, or null if unrecognised.
+ */
+export function parseAnyKey(input: string): CamelotKey | null {
+  const s = input.trim();
+  if (!s) return null;
+
+  // Camelot — number + A/B.
+  let m = /^(\d{1,2})\s*([AB])$/i.exec(s);
+  if (m) {
+    const n = Number(m[1]);
+    if (n >= 1 && n <= 12) return { n, mode: m[2].toUpperCase() as Mode };
+  }
+
+  // Open Key — number + d (major) / m (minor).
+  m = /^(\d{1,2})\s*([dm])$/i.exec(s);
+  if (m) {
+    const openN = Number(m[1]);
+    if (openN >= 1 && openN <= 12) {
+      return { n: ((openN + 6) % 12) + 1, mode: m[2].toLowerCase() === "d" ? "B" : "A" };
+    }
+  }
+
+  // Musical — note + accidental(s) + optional mode word/suffix.
+  const mm = /^([a-g][#b♯♭]*)\s*(.*)$/i.exec(s);
+  if (mm) {
+    const pc = parsePitchClass(mm[1]);
+    if (pc != null) {
+      const rest = mm[2].trim().toLowerCase();
+      const mode: Mode = rest.startsWith("min") || rest === "m" ? "A" : "B";
+      const n = mode === "A" ? minorCamelot[pc] : majorCamelot[pc];
+      return { n, mode };
+    }
+  }
+
+  return null;
+}
+
+/** Format a `CamelotKey` in musical notation, e.g. "Db" / "C#m". */
+export function toMusical(key: CamelotKey): string {
+  return key.mode === "B" ? MAJOR_NOTE[key.n] : `${MINOR_NOTE[key.n]}m`;
+}
+
+/** Format a `CamelotKey` in Open Key notation, e.g. "1d" / "8m". */
+export function toOpenKey(key: CamelotKey): string {
+  const openN = ((key.n - 8 + 12) % 12) + 1;
+  return `${openN}${key.mode === "B" ? "d" : "m"}`;
+}
+
+/**
+ * Render a stored key (in any recognised notation) in the chosen notation.
+ * Returns the raw input unchanged when it can't be parsed.
+ */
+export function displayKey(raw: string | null | undefined, notation: KeyNotation): string {
+  if (!raw) return "";
+  const key = parseAnyKey(raw);
+  if (!key) return raw;
+  if (notation === "musical") return toMusical(key);
+  if (notation === "openkey") return toOpenKey(key);
+  return formatCamelot(key);
 }
 
 // ---------------------------------------------------------------------------

@@ -8,14 +8,17 @@ import { TrackTable } from "./features/track-table";
 import { AnalysisPanel } from "./features/analysis/AnalysisPanel";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { PlaylistTreeNode } from "./features/sidebar/PlaylistTreeNode";
+import { WriteBackDialog } from "./features/sync/WriteBackDialog";
 import { useDebounce } from "./hooks/useDebounce";
 import { initWorkerPool, setPoolSize } from "./analysis/workerPool";
+import { displayKey } from "../shared/camelot";
 
 import {
   Search,
   Disc3,
   Piano,
   RefreshCw,
+  Upload,
   Library,
   ListTodo,
   Settings,
@@ -27,6 +30,15 @@ const SELECTED_PLAYLIST_KEY = "mixxxa.selectedPlaylistId";
 
 type SyncState = "idle" | "loading" | "ready" | "error";
 type RightPanel = "analysis" | "settings" | null;
+
+// Does `id` still resolve to a node anywhere in the (possibly nested) tree?
+function playlistExists(nodes: PlaylistNode[], id: string): boolean {
+  for (const node of nodes) {
+    if (node.id === id) return true;
+    if (node.children.length > 0 && playlistExists(node.children, id)) return true;
+  }
+  return false;
+}
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
@@ -45,6 +57,9 @@ function App() {
   const [autoCueProgress, setAutoCueProgress] = useState<{ step: string; pct: number } | null>(null);
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [syncError, setSyncError] = useState<SyncErrorKind | null>(null);
+  // True while re-importing the Rekordbox library in place (selection preserved).
+  const [resyncing, setResyncing] = useState(false);
+  const [writeBackOpen, setWriteBackOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Analysis state
@@ -54,6 +69,8 @@ function App() {
     parallelism: 2,
     aspects: ["key", "bpm"],
     engine: "essentia",
+    maxLogFiles: 10,
+    keyNotation: "camelot",
   });
   const [isPaused, setIsPaused] = useState(false);
   const workerPoolInitialized = useRef(false);
@@ -171,21 +188,40 @@ function App() {
 
   // ── Sync ────────────────────────────────────────────────────────────────────
 
-  async function handleSync() {
+  // Re-import the Rekordbox library in place. Keeps the user on whatever
+  // playlist/collection they had open (falling back to Collection only if that
+  // playlist no longer exists), and shows a loading state over the track list
+  // instead of flashing the empty-playlist state. Used by the manual SYNC
+  // button, by Restore, and after a write-back so both databases realign.
+  const handleSync = useCallback(async () => {
     setSyncState("loading");
     setSyncError(null);
+    setResyncing(true);
     try {
       const tree = await electroview.rpc!.request.syncFromRekordbox();
       setPlaylistTree(tree);
-      setSelectedPlaylistId(COLLECTION_ID);
-      setTracks([]);
       setSyncState("ready");
+
+      // Restore the open selection; drop to Collection if it's gone after sync.
+      let targetId = selectedPlaylistId;
+      if (targetId !== COLLECTION_ID && !playlistExists(tree, targetId)) {
+        targetId = COLLECTION_ID;
+        setSelectedPlaylistId(COLLECTION_ID);
+        localStorage.setItem(SELECTED_PLAYLIST_KEY, COLLECTION_ID);
+      }
+
+      const fresh = targetId === COLLECTION_ID
+        ? await electroview.rpc!.request.getAllTracks()
+        : await electroview.rpc!.request.getPlaylistTracks({ playlistId: targetId });
+      setTracks(fresh);
     } catch (err: unknown) {
       const kind = (err as { syncErrorKind?: SyncErrorKind }).syncErrorKind ?? null;
       setSyncError(kind);
       setSyncState("error");
+    } finally {
+      setResyncing(false);
     }
-  }
+  }, [selectedPlaylistId]);
 
   const handleSelectPlaylist = useCallback((playlistId: string) => {
     setSelectedPlaylistId(playlistId);
@@ -423,6 +459,15 @@ function App() {
               <RefreshCw size={14} className={syncState === "loading" ? "animate-spin" : ""} />
               SYNC
             </Button>
+            <Button
+              onClick={() => setWriteBackOpen(true)}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 font-bold"
+            >
+              <Upload size={14} />
+              SYNC TO REKORDBOX
+            </Button>
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
               <button
                 onClick={() => togglePanel("analysis")}
@@ -472,7 +517,7 @@ function App() {
                     <div className="flex items-center gap-2">
                       <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Key</span>
                       {loadedTrack?.key ? (
-                        <span className="bg-key-cyan text-black px-2 py-0.5 rounded text-xs font-bold">{loadedTrack.key}</span>
+                        <span className="bg-key-cyan text-black px-2 py-0.5 rounded text-xs font-bold">{displayKey(loadedTrack.key, analysisSettings.keyNotation)}</span>
                       ) : (
                         <span className="text-muted-foreground text-xs">—</span>
                       )}
@@ -525,7 +570,12 @@ function App() {
               </div>
 
               <div className="flex-1 min-h-0">
-                {filteredTracks.length === 0 && debouncedSearch.trim() ? (
+                {resyncing ? (
+                  <div className="flex items-center justify-center gap-2 h-32 text-sm text-muted-foreground">
+                    <RefreshCw size={14} className="animate-spin" />
+                    Syncing your library…
+                  </div>
+                ) : filteredTracks.length === 0 && debouncedSearch.trim() ? (
                   <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
                     No tracks found.
                   </div>
@@ -552,6 +602,7 @@ function App() {
                     onAutoCue={handleAutoCue}
                     storageKey="mixxxa.trackTableColumns"
                     currentPlaylistId={selectedPlaylistId === COLLECTION_ID ? null : selectedPlaylistId}
+                    keyNotation={analysisSettings.keyNotation}
                     reorderable={selectedPlaylistId !== COLLECTION_ID}
                     showIndexColumn={selectedPlaylistId !== COLLECTION_ID}
                     searchActive={debouncedSearch.trim().length > 0}
@@ -595,6 +646,7 @@ function App() {
                   <SettingsPage
                     settings={analysisSettings}
                     onChange={handleSettingsChange}
+                    onResync={handleSync}
                   />
                 )}
               </div>
@@ -612,6 +664,12 @@ function App() {
           onCuesApplied={applyCuesIfLoaded}
         />
       )}
+
+      <WriteBackDialog
+        open={writeBackOpen}
+        onOpenChange={setWriteBackOpen}
+        onWritten={handleSync}
+      />
     </div>
   );
 }

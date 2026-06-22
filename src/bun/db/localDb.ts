@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { SCHEMA_SQL } from "./schema";
+import { parseAnyKey, formatCamelot } from "../../shared/camelot";
 import type { PlaylistNode, Track, HistoryEntry, CueMarker } from "../../shared/types";
 
 let db: Database | null = null;
@@ -31,6 +32,16 @@ const CONTENT_ANALYSIS_COLUMNS = [
   "waveform_peaks TEXT",
   "waveform_duration REAL",
 ];
+
+// Columns on `content` that hold locally-computed data Rekordbox knows nothing
+// about (analysis results, fingerprint, waveform cache, timings). A re-sync
+// deletes and re-imports every content row from Rekordbox, so these must be
+// snapshotted and restored or they'd be lost on each sync. Derived from
+// CONTENT_ANALYSIS_COLUMNS minus the few columns Rekordbox is authoritative for.
+const REKORDBOX_SOURCED_CONTENT_COLUMNS = new Set(["file_path", "album", "bit_rate"]);
+const LOCAL_CONTENT_COLUMNS: string[] = CONTENT_ANALYSIS_COLUMNS
+  .map((colDef) => colDef.split(" ")[0])
+  .filter((name) => !REKORDBOX_SOURCED_CONTENT_COLUMNS.has(name));
 
 // Columns from the removed genre/mood/arousal analysis aspects. Dropped from any
 // existing DB so the schema stays tidy. analyzed_energy is intentionally absent
@@ -162,8 +173,12 @@ type ContentRow = {
   analysis_status: string | null;
 };
 
-function normalizeKey(k: string | null): string {
-  return (k ?? "").trim().toLowerCase();
+// Canonicalise any key notation to Camelot so the same key spelled differently
+// (e.g. Rekordbox "Cm" vs analysed "5A") doesn't register as a difference.
+function canonicalKey(k: string | null): string {
+  if (!k) return "";
+  const parsed = parseAnyKey(k);
+  return parsed ? formatCamelot(parsed) : k.trim().toLowerCase();
 }
 
 function rowToTrack(row: ContentRow): Track {
@@ -178,7 +193,7 @@ function rowToTrack(row: ContentRow): Track {
       : false;
   const keyDiffers =
     rbKey !== "" && analyzedKey != null
-      ? normalizeKey(rbKey) !== normalizeKey(analyzedKey)
+      ? canonicalKey(rbKey) !== canonicalKey(analyzedKey)
       : false;
 
   return {
@@ -269,6 +284,39 @@ export function reorderPlaylistTracks(
     });
   });
   tx();
+}
+
+// ── Write-back read helpers ───────────────────────────────────────────────────
+
+/** Non-folder playlists (lists + smart lists), in tree order. */
+export function readNonFolderPlaylists(database: Database): Array<{ id: string; name: string }> {
+  return database.query<{ id: string; name: string }, []>(
+    "SELECT id, name FROM playlist WHERE attribute IN (0, 4) ORDER BY seq ASC"
+  ).all();
+}
+
+/** Ordered content ids for a playlist (local mirror order). */
+export function readLocalPlaylistOrder(database: Database, playlistId: string): string[] {
+  return database.query<{ content_id: string }, [string]>(
+    "SELECT content_id FROM playlist_song WHERE playlist_id = ? ORDER BY seq ASC"
+  ).all(playlistId).map((r) => r.content_id);
+}
+
+/** Tracks that have at least one analyzed value worth promoting to Rekordbox. */
+export function readAnalyzedTracks(
+  database: Database,
+): Array<{ id: string; title: string; analyzedBpm: number | null; analyzedKey: string | null }> {
+  return database.query<
+    { id: string; title: string | null; analyzed_bpm: number | null; analyzed_key: string | null },
+    []
+  >(
+    "SELECT id, title, analyzed_bpm, analyzed_key FROM content WHERE analyzed_bpm IS NOT NULL OR analyzed_key IS NOT NULL"
+  ).all().map((r) => ({
+    id: r.id,
+    title: r.title ?? "",
+    analyzedBpm: r.analyzed_bpm ?? null,
+    analyzedKey: r.analyzed_key ?? null,
+  }));
 }
 
 // ── Analysis write helpers ────────────────────────────────────────────────────
@@ -556,6 +604,14 @@ export function replaceLibrary(database: Database, data: LibraryData): void {
       "SELECT id, content_id, position_sec, end_sec, kind, color, comment, source, dirty FROM cue WHERE source = 'local'"
     ).all();
 
+    // Snapshot locally-computed analysis/waveform columns before content is
+    // cleared — Rekordbox never stored these, so they must be carried across
+    // the re-import and re-applied to rows that still exist.
+    type LocalContentRow = { id: string } & Record<string, unknown>;
+    const preservedLocal = database.query<LocalContentRow, []>(
+      `SELECT id, ${LOCAL_CONTENT_COLUMNS.join(", ")} FROM content`
+    ).all();
+
     database.exec("DELETE FROM playlist_song");
     database.exec("DELETE FROM playlist");
     database.exec("DELETE FROM content");
@@ -582,6 +638,17 @@ export function replaceLibrary(database: Database, data: LibraryData): void {
     );
     for (const c of data.contents) {
       insertContent.run(c.id, c.title, c.artist_id, c.key_id, c.bpm, c.length, c.bit_rate, c.rating, c.file_path, c.album);
+    }
+
+    // Re-apply preserved local analysis data to tracks that still exist. Rows
+    // for tracks removed from Rekordbox simply don't match and are dropped;
+    // newly-added tracks keep their default NULLs until analyzed.
+    const restoreLocal = database.prepare(
+      `UPDATE content SET ${LOCAL_CONTENT_COLUMNS.map((col) => `${col} = ?`).join(", ")} WHERE id = ?`
+    );
+    for (const row of preservedLocal) {
+      const params = [...LOCAL_CONTENT_COLUMNS.map((col) => row[col] ?? null), row.id];
+      (restoreLocal.run as (...args: unknown[]) => unknown)(...params);
     }
 
     const insertArtist = database.prepare("INSERT INTO artist (id, name) VALUES (?, ?)");

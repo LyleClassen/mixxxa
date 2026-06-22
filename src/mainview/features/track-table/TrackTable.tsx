@@ -1,12 +1,12 @@
-import { useState, useRef, useEffect, type CSSProperties } from "react";
+import { useState, useRef, useEffect, useMemo, type CSSProperties } from "react";
 import {
   useReactTable,
   getCoreRowModel,
   flexRender,
 } from "@tanstack/react-table";
 import { GripVertical } from "lucide-react";
-import type { Track } from "../../../shared/types";
-import { TRACK_COLUMNS } from "./columns";
+import type { Track, KeyNotation } from "../../../shared/types";
+import { buildTrackColumns } from "./columns";
 import { useColumnConfig } from "./useColumnConfig";
 import { ColumnContextMenu } from "./ColumnContextMenu";
 import { RowContextMenu } from "./RowContextMenu";
@@ -19,6 +19,7 @@ export interface TrackTableProps {
   onAutoCue?: (track: Track) => void;
   storageKey: string;
   currentPlaylistId: string | null;
+  keyNotation: KeyNotation;
   // Reorder support — enabled only for real playlists (not the Collection view).
   reorderable?: boolean;
   // The "#" position column is meaningless on the Collection view; hiding it
@@ -37,12 +38,14 @@ export function TrackTable({
   onAutoCue,
   storageKey,
   currentPlaylistId,
+  keyNotation,
   reorderable = false,
   searchActive = false,
   showIndexColumn = true,
   onReorder,
 }: TrackTableProps) {
   const columnConfig = useColumnConfig(storageKey);
+  const columns = useMemo(() => buildTrackColumns(keyNotation), [keyNotation]);
 
   // Forced override on top of stored visibility. Safe to layer here: visibility
   // updaters are applied against the hook's own state, so the override never
@@ -53,7 +56,7 @@ export function TrackTable({
 
   const table = useReactTable({
     data: tracks,
-    columns: TRACK_COLUMNS,
+    columns,
     getCoreRowModel: getCoreRowModel(),
     getRowId: (track) => track.id,
     state: {

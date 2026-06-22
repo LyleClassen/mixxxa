@@ -33,7 +33,73 @@ export interface Track {
   keyDiffers: boolean;
 }
 
-export type SyncErrorKind = "not-found" | "unreadable";
+export type SyncErrorKind =
+  | "not-found"
+  | "unreadable"
+  | "locked"
+  | "write-failed"
+  | "backup-failed"
+  | "stale-diff";
+
+// ── Rekordbox write-back types ────────────────────────────────────────────────
+
+export interface PlaylistReorderDiff {
+  playlistId: string;
+  name: string;
+  changedCount: number;
+  // Local desired order, expressed as content ids — lets write-back apply the
+  // ordering without re-deriving it.
+  orderedTrackIds: string[];
+}
+
+export interface TrackValueChange {
+  trackId: string;
+  title: string;
+  field: "bpm" | "key";
+  oldValue: string; // current Rekordbox value (for display)
+  newValue: string; // analyzed value to write (for display)
+}
+
+export interface RekordboxDiff {
+  playlists: PlaylistReorderDiff[];
+  trackChanges: TrackValueChange[];
+  // Rekordbox local update sequence number captured at diff time — re-checked
+  // before write to detect concurrent Rekordbox edits.
+  localUsn: number;
+}
+
+// Which changed aspects the user chose to push. All true by default.
+export interface WriteBackAspects {
+  ordering: boolean;
+  bpm: boolean;
+  key: boolean;
+}
+
+export interface WriteBackSummary {
+  playlistsReordered: number;
+  bpmUpdated: number;
+  keysUpdated: number;
+}
+
+export interface WriteBackProgress {
+  phase: "backup" | "ordering" | "bpm" | "key";
+  current: number;
+  total: number;
+  label: string;
+}
+
+export type BackupOrigin = "prewrite" | "prerestore" | "manual";
+
+export interface BackupInfo {
+  filename: string;
+  createdAt: number; // epoch ms
+  sizeBytes: number;
+  origin: BackupOrigin;
+}
+
+export interface RekordboxSyncSettings {
+  maxBackups: number;
+}
 
 // ── Waveform types ────────────────────────────────────────────────────────────
 
@@ -60,11 +126,16 @@ export type AnalysisAspect = "key" | "bpm" | "bitrate" | "energy" | "loudness" |
 
 export type AnalysisEngine = "essentia" | "orbit";
 
+// How keys are displayed throughout the UI. Stored values are always Camelot;
+// this only affects rendering.
+export type KeyNotation = "camelot" | "musical" | "openkey";
+
 export interface AnalysisSettings {
   parallelism: number;
   aspects: AnalysisAspect[];
   engine: AnalysisEngine;
   maxLogFiles: number;
+  keyNotation: KeyNotation;
 }
 
 export type AnalysisPhase =
@@ -173,6 +244,13 @@ export type MixxxRPC = {
       // Analysis — settings
       getAnalysisSettings: { params: undefined; response: AnalysisSettings };
       setAnalysisSettings: { params: Partial<AnalysisSettings>; response: AnalysisSettings };
+      // Rekordbox write-back + backups
+      getRekordboxSettings: { params: undefined; response: RekordboxSyncSettings };
+      setRekordboxSettings: { params: Partial<RekordboxSyncSettings>; response: RekordboxSyncSettings };
+      diffRekordbox: { params: undefined; response: RekordboxDiff };
+      writeBackToRekordbox: { params: { confirmedDiff: RekordboxDiff; selectedAspects: WriteBackAspects }; response: WriteBackSummary };
+      listRekordboxBackups: { params: undefined; response: BackupInfo[] };
+      restoreRekordboxBackup: { params: { filename: string }; response: void };
       // Analysis — history
       getAnalysisHistory: { params: undefined; response: HistoryEntry[] };
       pruneAnalysisHistory: { params: undefined; response: void };
@@ -191,6 +269,7 @@ export type MixxxRPC = {
     messages: {
       analysisQueueUpdate: { queue: QueueItem[] };
       autoCueProgress: AutoCueProgress;
+      writeBackProgress: WriteBackProgress;
     };
   }>;
   webview: RPCSchema<{ requests: {}; messages: {} }>;

@@ -1,6 +1,7 @@
 import { createColumnHelper, type RowData } from "@tanstack/react-table";
 import { Music2 } from "lucide-react";
-import type { Track } from "../../../shared/types";
+import type { Track, KeyNotation } from "../../../shared/types";
+import { displayKey } from "../../../shared/camelot";
 
 // TanStack column definitions for TrackTable. Single source of truth for column
 // order, sizing, labels, default visibility, alignment, and cell rendering.
@@ -14,7 +15,10 @@ declare module "@tanstack/react-table" {
 
 const col = createColumnHelper<Track>();
 
-export const TRACK_COLUMNS = [
+// Columns are built per-render so the Key column can render in the user's chosen
+// notation. Column ids/order/sizing are notation-independent.
+export function buildTrackColumns(keyNotation: KeyNotation) {
+  return [
   col.display({
     id: "index",
     header: "#",
@@ -88,9 +92,9 @@ export const TRACK_COLUMNS = [
             ? "bg-yellow-400/20 border-yellow-400/50 text-yellow-300"
             : "bg-muted border-border"
         }`}>
-          {track.key}
+          {displayKey(track.key, keyNotation)}
           {differs && track.analyzedKey && (
-            <span className="block text-[10px] opacity-70">{track.analyzedKey}</span>
+            <span className="block text-[10px] opacity-70">{displayKey(track.analyzedKey, keyNotation)}</span>
           )}
         </span>
       ) : (
@@ -221,11 +225,15 @@ export const TRACK_COLUMNS = [
       </span>
     ),
   }),
-];
+  ];
+}
+
+// Notation-independent column metadata, derived once from a reference build.
+const REFERENCE_COLUMNS = buildTrackColumns("camelot");
 
 // Accessor columns without an explicit `id` only carry `accessorKey` until the
 // table instance derives the id, so fall back to it here.
-export const COLUMN_IDS = TRACK_COLUMNS.map(
+export const COLUMN_IDS = REFERENCE_COLUMNS.map(
   (c) => (c.id ?? (c as { accessorKey?: string }).accessorKey) as string,
 );
 
