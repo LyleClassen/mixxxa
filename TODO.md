@@ -7,4 +7,6 @@
 - [ ] Playlist rename
 - [ ] Track meta editing
 - [ ] Playlist designer
+- [ ] Auto cue clean up (fix modal, start and ending cues)
+- [ ] [Auto cue clean up (fix modal, start and ending cues)](https://github.com/openmirlab/all-in-one-fix)
 
