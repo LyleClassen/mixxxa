@@ -154,6 +154,8 @@ export interface QueueItemTimings {
   timeBpmMs?: number;
   timeBitrateMs?: number;
   timeOrbitMs?: number;
+  // Energy/loudness/dynamics feature extraction (ORBIT only).
+  timeFeaturesMs?: number;
   timeTotalMs?: number;
 }
 
@@ -174,6 +176,7 @@ export interface HistoryEntry extends QueueItemTimings {
   trackId: string;
   aspects: string[];
   status: string;
+  engine?: string;
   finishedAt: number;
 }
 

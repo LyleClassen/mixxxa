@@ -78,11 +78,13 @@ CREATE TABLE IF NOT EXISTS analysis_history (
   track_id TEXT NOT NULL,
   aspects TEXT NOT NULL,
   status TEXT NOT NULL,
+  engine TEXT,
   time_decode_ms INTEGER,
   time_key_ms INTEGER,
   time_bpm_ms INTEGER,
   time_bitrate_ms INTEGER,
   time_orbit_ms INTEGER,
+  time_features_ms INTEGER,
   time_total_ms INTEGER,
   finished_at INTEGER NOT NULL
 );

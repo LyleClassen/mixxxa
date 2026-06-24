@@ -11,6 +11,17 @@ const PHASE_LABELS: Record<string, string> = {
   persisting: "Saving",
 };
 
+// ORBIT reports a single 0..1 progress with the sub-step encoded at fixed
+// fractions (see sidecar/main.py analyze): decoding 0.0 → bpm 0.4 → key 0.65 →
+// features 0.9. Derive the running-process label from that pct so the queue row
+// shows the current step instead of a generic "ORBIT".
+function orbitStepLabel(pct: number): string {
+  if (pct < 0.4) return "Decoding";
+  if (pct < 0.65) return "BPM";
+  if (pct < 0.9) return "Key";
+  return "Energy";
+}
+
 function stepProgress(item: QueueItem): number {
   if (!item.phase) return 0;
   if (item.phase === "orbit") {
@@ -65,7 +76,9 @@ function QueueItemRow({
         <div className="flex items-center gap-2 mt-0.5">
           {isRunning && item.phase && (
             <>
-              <span className="text-xs text-primary">{PHASE_LABELS[item.phase] ?? item.phase}</span>
+              <span className="text-xs text-primary">
+                {item.phase === "orbit" ? orbitStepLabel(item.progress) : (PHASE_LABELS[item.phase] ?? item.phase)}
+              </span>
               <div className="flex-1 h-1 bg-muted rounded-full max-w-[80px]">
                 <div
                   className="h-full bg-primary rounded-full transition-all"
@@ -139,8 +152,8 @@ function HistoryView({
   }
 
   const totalMs = history.reduce((s, e) => s + (e.timeTotalMs ?? 0), 0);
-  const avgKeyMs = avg(history.map((e) => e.timeKeyMs));
-  const avgBpmMs = avg(history.map((e) => e.timeBpmMs));
+  const orbit = history.filter((e) => entryEngine(e) === "orbit");
+  const essentia = history.filter((e) => entryEngine(e) === "essentia");
 
   return (
     <div className="space-y-3 p-3">
@@ -156,10 +169,8 @@ function HistoryView({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Stat label="Avg Key" value={msToSec(avgKeyMs)} />
-        <Stat label="Avg BPM" value={msToSec(avgBpmMs)} />
-      </div>
+      <EngineStats label="ORBIT" entries={orbit} />
+      <EngineStats label="ESSENTIA" entries={essentia} />
 
       <div className="space-y-0.5 max-h-48 overflow-y-auto">
         {history.slice(0, 50).map((entry) => (
@@ -177,10 +188,10 @@ function HistoryView({
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div className="bg-muted/30 rounded p-2 text-center">
-      <div className="text-lg font-mono font-bold">{value}</div>
+    <div className={`rounded p-2 text-center ${highlight ? "bg-primary/15 ring-1 ring-primary/40" : "bg-muted/30"}`}>
+      <div className={`text-lg font-mono font-bold ${highlight ? "text-primary" : ""}`}>{value}</div>
       <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   );
@@ -190,6 +201,46 @@ function avg(vals: (number | undefined)[]): number | undefined {
   const filtered = vals.filter((v): v is number => v != null);
   if (filtered.length === 0) return undefined;
   return Math.round(filtered.reduce((s, v) => s + v, 0) / filtered.length);
+}
+
+// Classify a history row by engine. Newer rows carry `engine` explicitly; older
+// rows are inferred (only ORBIT records an overall orbit time).
+function entryEngine(e: HistoryEntry): "orbit" | "essentia" {
+  if (e.engine === "orbit" || e.engine === "essentia") return e.engine;
+  return e.timeOrbitMs != null ? "orbit" : "essentia";
+}
+
+// Per-engine timing averages: total + the four sub-processes, with the slowest
+// process highlighted so it's obvious which step dominates.
+function EngineStats({ label, entries }: { label: string; entries: HistoryEntry[] }) {
+  if (entries.length === 0) return null;
+
+  const avgTotal = avg(entries.map((e) => e.timeTotalMs));
+  const procs = [
+    { key: "Decode", ms: avg(entries.map((e) => e.timeDecodeMs)) },
+    { key: "BPM", ms: avg(entries.map((e) => e.timeBpmMs)) },
+    { key: "Key", ms: avg(entries.map((e) => e.timeKeyMs)) },
+    { key: "Energy", ms: avg(entries.map((e) => e.timeFeaturesMs)) },
+  ];
+  const slowestMs = Math.max(...procs.map((p) => p.ms ?? -1));
+
+  return (
+    <div className="space-y-1.5">
+      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        {label} · {entries.length} runs · avg {msToSec(avgTotal)}
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        {procs.map((p) => (
+          <Stat
+            key={p.key}
+            label={p.key}
+            value={msToSec(p.ms)}
+            highlight={p.ms != null && p.ms === slowestMs}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ── AnalysisPanel ─────────────────────────────────────────────────────────────

@@ -120,6 +120,11 @@ function App() {
       if (msg.queue.some((i) => i.status === "done")) {
         reloadTracks();
       }
+      // Refresh history as runs finish so newly-recorded runs (either engine)
+      // appear without a reload.
+      if (msg.queue.some((i) => i.status === "done" || i.status === "failed")) {
+        electroview.rpc!.request.getAnalysisHistory().then(setHistory).catch(() => {});
+      }
     };
     anyRpc.addMessageListener("analysisQueueUpdate", handler);
     return () => {

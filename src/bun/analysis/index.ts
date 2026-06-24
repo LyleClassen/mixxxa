@@ -235,6 +235,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
         trackId: row.track_id,
         aspects: allAspects,
         status: "done",
+        engine: "orbit",
         timeBitrateMs,
       });
       schedulePush(store);
@@ -270,6 +271,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
         timeDecodeMs: orbitResult.timings.decodeMs,
         timeKeyMs: orbitResult.timings.keyMs,
         timeBpmMs: orbitResult.timings.bpmMs,
+        timeFeaturesMs: orbitResult.timings.featuresMs,
         timeBitrateMs,
         timeOrbitMs,
         timeTotalMs: (timeBitrateMs ?? 0) + timeOrbitMs,
@@ -300,6 +302,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
         trackId: row.track_id,
         aspects: allAspects,
         status: "done",
+        engine: "orbit",
         ...timings,
       });
     } catch (err) {
@@ -311,6 +314,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
         trackId: row.track_id,
         aspects: allAspects,
         status: "failed",
+        engine: "orbit",
         timeBitrateMs,
       });
     }
@@ -330,6 +334,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
       trackId: row.track_id,
       aspects: allAspects,
       status: "done",
+      engine: "essentia",
       timeBitrateMs,
     });
     schedulePush(store);
@@ -404,6 +409,8 @@ export function reportResult(db: Database, result: AnalysisResult): void {
     trackId: row.track_id,
     aspects: JSON.parse(row.aspects),
     status: result.success ? "done" : "failed",
+    // reportResult is the renderer-worker completion path ⇒ always Essentia.
+    engine: "essentia",
     ...result.timings,
     timeBitrateMs: row.time_bitrate_ms ?? undefined,
   });

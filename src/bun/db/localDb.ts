@@ -103,6 +103,19 @@ export function getDb(dataDir: string): Database {
     }
   }
 
+  // Idempotent migration: add time_features_ms (Energy) + engine to history
+  {
+    const present = new Set(
+      db.query<{ name: string }, []>("PRAGMA table_info(analysis_history)").all().map((c) => c.name),
+    );
+    if (!present.has("time_features_ms")) {
+      db.exec("ALTER TABLE analysis_history ADD COLUMN time_features_ms INTEGER");
+    }
+    if (!present.has("engine")) {
+      db.exec("ALTER TABLE analysis_history ADD COLUMN engine TEXT");
+    }
+  }
+
   // Idempotent migration: add source/dirty to cue (locally-created cue tracking)
   {
     const present = new Set(
@@ -382,26 +395,30 @@ export function appendAnalysisHistory(database: Database, entry: {
   trackId: string;
   aspects: string[];
   status: string;
+  engine?: string | null;
   timeDecodeMs?: number | null;
   timeKeyMs?: number | null;
   timeBpmMs?: number | null;
   timeBitrateMs?: number | null;
   timeOrbitMs?: number | null;
+  timeFeaturesMs?: number | null;
   timeTotalMs?: number | null;
 }): void {
   database.run(
     `INSERT INTO analysis_history
-      (id, track_id, aspects, status, time_decode_ms, time_key_ms, time_bpm_ms, time_bitrate_ms, time_orbit_ms, time_total_ms, finished_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, track_id, aspects, status, engine, time_decode_ms, time_key_ms, time_bpm_ms, time_bitrate_ms, time_orbit_ms, time_features_ms, time_total_ms, finished_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     entry.id,
     entry.trackId,
     JSON.stringify(entry.aspects),
     entry.status,
+    entry.engine ?? null,
     entry.timeDecodeMs ?? null,
     entry.timeKeyMs ?? null,
     entry.timeBpmMs ?? null,
     entry.timeBitrateMs ?? null,
     entry.timeOrbitMs ?? null,
+    entry.timeFeaturesMs ?? null,
     entry.timeTotalMs ?? null,
     Date.now(),
   );
@@ -555,11 +572,13 @@ export function readAnalysisHistory(database: Database): HistoryEntry[] {
     track_id: string;
     aspects: string;
     status: string;
+    engine: string | null;
     time_decode_ms: number | null;
     time_key_ms: number | null;
     time_bpm_ms: number | null;
     time_bitrate_ms: number | null;
     time_orbit_ms: number | null;
+    time_features_ms: number | null;
     time_total_ms: number | null;
     finished_at: number;
   };
@@ -571,11 +590,13 @@ export function readAnalysisHistory(database: Database): HistoryEntry[] {
     trackId: r.track_id,
     aspects: JSON.parse(r.aspects) as string[],
     status: r.status,
+    engine: r.engine ?? undefined,
     timeDecodeMs: r.time_decode_ms ?? undefined,
     timeKeyMs: r.time_key_ms ?? undefined,
     timeBpmMs: r.time_bpm_ms ?? undefined,
     timeBitrateMs: r.time_bitrate_ms ?? undefined,
     timeOrbitMs: r.time_orbit_ms ?? undefined,
+    timeFeaturesMs: r.time_features_ms ?? undefined,
     timeTotalMs: r.time_total_ms ?? undefined,
     finishedAt: r.finished_at,
   }));
