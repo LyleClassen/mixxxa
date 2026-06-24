@@ -14,7 +14,7 @@ import { decodeAudio } from "./decoder";
 import { analyzeBitrate } from "./bitrate";
 import { computeFingerprint } from "./fingerprint";
 import { loadSettings, saveSettings } from "./settings";
-import { analyzeOrbit } from "./sidecar";
+import { analyzeOrbit, setSidecarPoolSize } from "./sidecar";
 import { normalizeKey } from "../../shared/camelot";
 import {
   writeAnalyzedValues,
@@ -74,6 +74,9 @@ export function initAnalysis(
   const store = new AnalysisQueueStore(db);
   // On startup, reset any persisted running items back to queued (task 4.7)
   store.resetRunningToQueued();
+  // Size the orbit process pool from the persisted parallelism setting (lazy
+  // spawn — no processes are created until orbit work actually arrives).
+  setSidecarPoolSize(loadSettings(db).parallelism);
   schedulePush(store);
 }
 
@@ -143,7 +146,13 @@ export function getAnalysisSettings(db: Database): AnalysisSettings {
 }
 
 export function setAnalysisSettings(db: Database, patch: Partial<AnalysisSettings>): AnalysisSettings {
-  return saveSettings(db, patch);
+  const updated = saveSettings(db, patch);
+  // Keep the orbit process pool in sync with the parallelism slider, just like
+  // the renderer web-worker pool tracks it renderer-side.
+  if (patch.parallelism !== undefined) {
+    setSidecarPoolSize(updated.parallelism);
+  }
+  return updated;
 }
 
 export function getHistory(db: Database) {

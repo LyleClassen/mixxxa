@@ -1,10 +1,16 @@
 /**
  * ORBIT Python sidecar supervisor.
  *
- * Manages a single persistent Python process that runs sidecar/main.py.
+ * Manages a POOL of persistent Python processes that run sidecar/main.py.
  * Newline-delimited JSON framing, UUID correlation, wait-for-ready handshake,
- * restart-on-crash with a failure-count guard, and a single in-flight mutex
- * (v1: serialized requests).
+ * restart-on-crash with a per-worker failure-count guard.
+ *
+ * Concurrency: the pool is sized by the `parallelism` setting (see
+ * setSidecarPoolSize, wired from src/bun/analysis/index.ts). Each worker runs one
+ * request at a time; runOnPool dispatches across idle workers so up to `poolSize`
+ * orbit analyses run truly in parallel. Each process loads librosa + ONNX
+ * (~300-600 MB resident), so at parallelism=8 the pool can use several GB — this is
+ * the deliberate tradeoff for reusing the single parallelism slider.
  *
  * Dev: spawns via `uv run python main.py` from the sidecar/ directory.
  * Packaged: uses a frozen orbit-sidecar exe placed next to the bun bundle.
@@ -60,27 +66,6 @@ function getSpawnArgs(): { cmd: string[]; cwd: string } {
   return { cmd: [resolveUvPath(), "run", "python", "main.py"], cwd: DEV_SIDECAR_DIR };
 }
 
-// ── State ────────────────────────────────────────────────────────────────────
-
-let proc: Subprocess<"pipe", "pipe", "pipe"> | null = null;
-let ready = false;
-let failureCount = 0;
-const MAX_FAILURES = 3;
-
-// Tag on each pending entry — selects how readLoop maps the raw result
-type SidecarTask = "analyze" | "drops";
-
-// Pending RPC calls awaiting a response from the sidecar
-const pending = new Map<string, {
-  task: SidecarTask;
-  resolve: (r: unknown) => void;
-  reject: (e: Error) => void;
-  onProgress?: OrbitProgressCallback;
-}>();
-
-// In-flight mutex: only one request at a time in v1
-let inflight: Promise<unknown> | null = null;
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface OrbitTimings {
@@ -104,6 +89,16 @@ export interface OrbitResult {
 
 /** Called with the current step name and overall progress fraction (0..1). */
 export type OrbitProgressCallback = (step: string, pct: number) => void;
+
+// Tag on each pending entry — selects how readLoop maps the raw result
+type SidecarTask = "analyze" | "drops";
+
+interface PendingCall {
+  task: SidecarTask;
+  resolve: (r: unknown) => void;
+  reject: (e: Error) => void;
+  onProgress?: OrbitProgressCallback;
+}
 
 interface AnalyzeRawResult {
   bpm: { value: number };
@@ -149,29 +144,83 @@ function mapAnalyzeResult(r: AnalyzeRawResult): OrbitResult {
   };
 }
 
+// ── Pool state ─────────────────────────────────────────────────────────────────
+
+interface SidecarWorker {
+  proc: Subprocess<"pipe", "pipe", "pipe"> | null;
+  ready: boolean;
+  busy: boolean;
+  failureCount: number;
+  // Pending RPC calls awaiting a response from this worker's process
+  pending: Map<string, PendingCall>;
+}
+
+const MAX_FAILURES = 3;
+
+let poolSize = 2; // set from the `parallelism` setting via setSidecarPoolSize
+const pool: SidecarWorker[] = [];
+// Acquirers waiting for a worker to free up (FIFO)
+const waiters: Array<(w: SidecarWorker) => void> = [];
+
+function createWorker(): SidecarWorker {
+  return { proc: null, ready: false, busy: false, failureCount: 0, pending: new Map() };
+}
+
+function killWorker(w: SidecarWorker): void {
+  if (w.proc) {
+    try { w.proc.kill(); } catch {}
+  }
+  w.proc = null;
+  w.ready = false;
+  for (const [, pend] of w.pending) {
+    pend.reject(new Error("ORBIT sidecar process terminated"));
+  }
+  w.pending.clear();
+}
+
+/**
+ * Set the orbit process-pool size (clamped 1–8). Idle workers beyond the new
+ * size are reaped immediately; busy ones are reaped when released. Does not
+ * eagerly spawn — processes are created lazily by acquireWorker when work arrives.
+ */
+export function setSidecarPoolSize(n: number): void {
+  poolSize = Math.max(1, Math.min(8, Math.floor(n)));
+  bunLog("SIDECAR", `pool size set to ${poolSize}`);
+  // Reap idle workers beyond the new cap
+  for (let i = pool.length - 1; i >= 0 && pool.length > poolSize; i--) {
+    const w = pool[i];
+    if (!w.busy) {
+      killWorker(w);
+      pool.splice(i, 1);
+    }
+  }
+}
+
 // ── Process management ───────────────────────────────────────────────────────
 
-async function spawnAndWarm(): Promise<void> {
+async function spawnAndWarm(w: SidecarWorker): Promise<void> {
   const { cmd, cwd } = getSpawnArgs();
   bunLog("SIDECAR", `spawning: cmd=[${cmd.join(" ")}] cwd=${cwd}`);
-  proc = Bun.spawn(cmd, {
+  const proc = Bun.spawn(cmd, {
     cwd,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
   });
+  w.proc = proc;
+  w.ready = false;
 
-  // Drain stderr to a string buffer (logging only)
+  // Drain stderr to the log (logging only)
   void drainStderr(proc);
 
   // Start reading stdout in the background
-  void readLoop(proc);
+  void readLoop(w, proc);
 
-  // Wait for the {"ready":true} handshake (up to 60 s for librosa import)
-  await waitForReady(30_000);
+  // Wait for the {"ready":true} handshake (librosa import can be slow)
+  await waitForReady(w, 30_000);
 }
 
-async function waitForReady(timeoutMs: number): Promise<void> {
+async function waitForReady(w: SidecarWorker, timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const deadline = setTimeout(() => {
       bunLog("SIDECAR", `ready timeout after ${timeoutMs}ms`);
@@ -179,10 +228,13 @@ async function waitForReady(timeoutMs: number): Promise<void> {
     }, timeoutMs);
 
     const check = () => {
-      if (ready) {
+      if (w.ready) {
         clearTimeout(deadline);
         bunLog("SIDECAR", "ready");
         resolve();
+      } else if (!w.proc) {
+        clearTimeout(deadline);
+        reject(new Error("ORBIT sidecar process exited before ready"));
       } else {
         setTimeout(check, 50);
       }
@@ -201,7 +253,7 @@ async function drainStderr(p: Subprocess<"pipe", "pipe", "pipe">): Promise<void>
   } catch {}
 }
 
-async function readLoop(p: Subprocess<"pipe", "pipe", "pipe">): Promise<void> {
+async function readLoop(w: SidecarWorker, p: Subprocess<"pipe", "pipe", "pipe">): Promise<void> {
   let buf = "";
   try {
     for await (const chunk of p.stdout as unknown as AsyncIterable<Uint8Array>) {
@@ -214,17 +266,17 @@ async function readLoop(p: Subprocess<"pipe", "pipe", "pipe">): Promise<void> {
         try {
           const msg = JSON.parse(line) as SidecarResponse;
           if (msg.ready) {
-            ready = true;
+            w.ready = true;
             continue;
           }
-          const pend = pending.get(msg.id);
+          const pend = w.pending.get(msg.id);
           if (!pend) continue;
           if (msg.progress) {
             // Interim progress — keep the pending entry alive
             try { pend.onProgress?.(msg.progress.step, msg.progress.pct); } catch {}
             continue;
           }
-          pending.delete(msg.id);
+          w.pending.delete(msg.id);
           if (msg.error) {
             pend.reject(new Error(msg.error));
           } else if (msg.result) {
@@ -241,39 +293,41 @@ async function readLoop(p: Subprocess<"pipe", "pipe", "pipe">): Promise<void> {
     }
   } catch {}
 
-  // Process exited — reject all pending calls
+  // Process exited — reject all pending calls on this worker
   bunLog("SIDECAR", "process exited");
-  for (const [, pend] of pending) {
+  for (const [, pend] of w.pending) {
     pend.reject(new Error("ORBIT sidecar process exited unexpectedly"));
   }
-  pending.clear();
-  proc = null;
-  ready = false;
+  w.pending.clear();
+  // Only clear the process if it's still the one we were reading from (avoid
+  // clobbering a freshly respawned proc).
+  if (w.proc === p) {
+    w.proc = null;
+    w.ready = false;
+  }
 }
 
-// ── Public API ───────────────────────────────────────────────────────────────
-
-async function ensureRunning(): Promise<void> {
-  if (proc && ready) return;
-  if (failureCount >= MAX_FAILURES) {
+async function ensureRunning(w: SidecarWorker): Promise<void> {
+  if (w.proc && w.ready) return;
+  if (w.failureCount >= MAX_FAILURES) {
     throw new Error(`ORBIT sidecar failed to start ${MAX_FAILURES} times; giving up`);
   }
-  bunLog("SIDECAR", `starting sidecar (failure count: ${failureCount})`);
-  proc = null;
-  ready = false;
+  bunLog("SIDECAR", `starting sidecar (failure count: ${w.failureCount})`);
+  w.proc = null;
+  w.ready = false;
   try {
-    await spawnAndWarm();
-    failureCount = 0;
+    await spawnAndWarm(w);
+    w.failureCount = 0;
   } catch (err) {
-    failureCount++;
-    proc = null;
-    ready = false;
-    bunLog("SIDECAR", `start failed (failure count now: ${failureCount}): ${err}`);
+    w.failureCount++;
+    killWorker(w);
+    bunLog("SIDECAR", `start failed (failure count now: ${w.failureCount}): ${err}`);
     throw err;
   }
 }
 
 async function sendRequest(
+  w: SidecarWorker,
   task: SidecarTask,
   payload: Record<string, unknown>,
   onProgress?: OrbitProgressCallback,
@@ -282,60 +336,94 @@ async function sendRequest(
   const line = JSON.stringify({ id, ...payload }) + "\n";
 
   return new Promise<unknown>((resolve, reject) => {
-    pending.set(id, { task, resolve, reject, onProgress });
+    w.pending.set(id, { task, resolve, reject, onProgress });
     try {
-      proc!.stdin.write(line);
+      w.proc!.stdin.write(line);
     } catch (err) {
-      pending.delete(id);
+      w.pending.delete(id);
       reject(err instanceof Error ? err : new Error(String(err)));
     }
   });
 }
 
+// ── Pool dispatch ──────────────────────────────────────────────────────────────
+
+async function acquireWorker(): Promise<SidecarWorker> {
+  // Prefer an existing idle worker
+  for (const w of pool) {
+    if (!w.busy) {
+      w.busy = true;
+      return w;
+    }
+  }
+  // Room to grow the pool
+  if (pool.length < poolSize) {
+    const w = createWorker();
+    w.busy = true;
+    pool.push(w);
+    return w;
+  }
+  // Pool saturated — wait for a release
+  return new Promise<SidecarWorker>((resolve) => {
+    waiters.push(resolve);
+  });
+}
+
+function releaseWorker(w: SidecarWorker): void {
+  // Pool shrank past the cap while this worker was busy — reap it now.
+  if (pool.length > poolSize) {
+    const idx = pool.indexOf(w);
+    if (idx !== -1) pool.splice(idx, 1);
+    killWorker(w);
+    return;
+  }
+  // Hand off to the next waiter (worker stays busy)
+  const next = waiters.shift();
+  if (next) {
+    next(w);
+    return;
+  }
+  w.busy = false;
+}
+
 /**
- * Run one sidecar request through the shared mutex/ensureRunning/restart
- * machinery. Lazily spawns the sidecar on first call, serializes requests
- * (one at a time), and marks the process dead on error so the next call
- * restarts it.
+ * Run one sidecar request on the process pool. Acquires an idle worker (spawning
+ * one lazily if the pool can still grow, else queueing until one frees up),
+ * ensures its process is running, sends the request, and releases the worker.
+ * On error the worker's process is marked dead so the next acquire respawns it.
  */
-async function runSerialized<T>(
+async function runOnPool<T>(
   task: SidecarTask,
   filePath: string,
   payload: Record<string, unknown>,
   onProgress?: OrbitProgressCallback,
 ): Promise<T> {
-  // Wait for any in-flight request to finish before starting a new one
-  while (inflight) {
-    try { await inflight; } catch { /* ignore errors from previous calls */ }
-  }
-
-  inflight = (async () => {
-    await ensureRunning();
-    const name = basename(filePath);
+  const w = await acquireWorker();
+  const name = basename(filePath);
+  try {
+    await ensureRunning(w);
     bunLog("SIDECAR", `${task} start: ${name}`);
     const t0 = Date.now();
     try {
-      const result = await sendRequest(task, payload, onProgress);
+      const result = await sendRequest(w, task, payload, onProgress);
       bunLog("SIDECAR", `${task} done: ${name} (${Date.now() - t0}ms)`);
-      return result;
+      return result as T;
     } catch (err) {
       bunLog("SIDECAR", `${task} error: ${name} — ${err}`);
-      proc = null;
-      ready = false;
+      // Mark the worker dead so it gets respawned on next use
+      killWorker(w);
       throw err;
     }
-  })();
-
-  try {
-    return (await inflight) as T;
   } finally {
-    inflight = null;
+    releaseWorker(w);
   }
 }
 
+// ── Public API ───────────────────────────────────────────────────────────────
+
 /** Analyze a track with ORBIT. */
 export async function analyzeOrbit(filePath: string, maxLength: number, onProgress?: OrbitProgressCallback): Promise<OrbitResult> {
-  return runSerialized<OrbitResult>("analyze", filePath, { filePath, maxLength }, onProgress);
+  return runOnPool<OrbitResult>("analyze", filePath, { filePath, maxLength }, onProgress);
 }
 
 /** Detect drops in a track (vendored drop-detector model in the sidecar). */
@@ -344,7 +432,7 @@ export async function detectDrops(
   opts: { threshold?: number; needBpm?: boolean } = {},
   onProgress?: OrbitProgressCallback,
 ): Promise<DropsResult> {
-  return runSerialized<DropsResult>("drops", filePath, {
+  return runOnPool<DropsResult>("drops", filePath, {
     task: "drops",
     filePath,
     ...(opts.threshold !== undefined ? { threshold: opts.threshold } : {}),
@@ -352,12 +440,10 @@ export async function detectDrops(
   }, onProgress);
 }
 
-/** Gracefully terminate the sidecar if running. */
+/** Gracefully terminate every sidecar process and clear the pool. */
 export function shutdownSidecar(): void {
-  if (proc) {
-    bunLog("SIDECAR", "shutdown requested");
-    try { proc.kill(); } catch {}
-    proc = null;
-    ready = false;
-  }
+  bunLog("SIDECAR", "shutdown requested");
+  for (const w of pool) killWorker(w);
+  pool.length = 0;
+  waiters.length = 0;
 }
