@@ -11,6 +11,9 @@ const DEFAULT_SETTINGS: AutoCueSettings = {
   ],
   fallbackBeatsBefore: 32,
   confidenceThreshold: 0.5,
+  addStartCue: true,
+  addEndCue: true,
+  beatsBeforeEnd: 32,
 };
 
 function clamp(n: number, min: number, max: number): number {
@@ -43,7 +46,18 @@ function sanitize(raw: Partial<AutoCueSettings>, base: AutoCueSettings): AutoCue
       ? clamp(raw.confidenceThreshold, 0, 1)
       : base.confidenceThreshold;
 
-  return { rules, fallbackBeatsBefore, confidenceThreshold };
+  const addStartCue =
+    typeof raw.addStartCue === "boolean" ? raw.addStartCue : base.addStartCue;
+
+  const addEndCue =
+    typeof raw.addEndCue === "boolean" ? raw.addEndCue : base.addEndCue;
+
+  const beatsBeforeEnd =
+    typeof raw.beatsBeforeEnd === "number" && Number.isFinite(raw.beatsBeforeEnd)
+      ? clamp(Math.round(raw.beatsBeforeEnd), 0, 512)
+      : base.beatsBeforeEnd;
+
+  return { rules, fallbackBeatsBefore, confidenceThreshold, addStartCue, addEndCue, beatsBeforeEnd };
 }
 
 export function loadAutoCueSettings(db: Database): AutoCueSettings {

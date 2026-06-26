@@ -47,10 +47,10 @@ export const cuesHandlers = {
   autoCueTrack: async ({ trackId }: { trackId: string }): Promise<AutoCueResult> => {
     const db = getDb(dataDir);
     const row = db.query<
-      { file_path: string | null; bpm: number | null; analyzed_bpm: number | null; analyzed_first_beat_sec: number | null },
+      { file_path: string | null; bpm: number | null; analyzed_bpm: number | null; analyzed_first_beat_sec: number | null; waveform_duration: number | null },
       [string]
     >(
-      "SELECT file_path, bpm, analyzed_bpm, analyzed_first_beat_sec FROM content WHERE id = ?"
+      "SELECT file_path, bpm, analyzed_bpm, analyzed_first_beat_sec, waveform_duration FROM content WHERE id = ?"
     ).get(trackId);
     if (!row?.file_path) throw new Error("Track has no audio file path");
 
@@ -87,7 +87,8 @@ export const cuesHandlers = {
       }
     }
 
-    const planned = planAutoCues(result.drops, bpm, firstBeatSec, settings);
+    const durationSec = result.duration ?? row.waveform_duration ?? undefined;
+    const planned = planAutoCues(result.drops, bpm, firstBeatSec, settings, durationSec);
     bunLog("CUES", `autoCue ${trackId}: ${result.drops.length} drops → ${planned.length} cues (bpm=${bpm.toFixed(1)})`);
 
     let undoAvailable = false;

@@ -144,7 +144,7 @@ export function CueMarkersOverlay({
 export function CueMinimapTicks({ cues, duration }: { cues: CueMarker[]; duration: number }) {
   if (duration <= 0) return null;
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+    <div className="absolute inset-0 overflow-hidden pointer-events-none z-10">
       {cues.map((cue) => {
         if (cue.positionSec > duration) return null;
         return (

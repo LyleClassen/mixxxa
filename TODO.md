@@ -1,6 +1,7 @@
 # TODO
 
 - [ ] Duplicate removal
+- [ ] Find artist and title 
 - [ ] Clean up unused UI elements
 - [ ] Move settings to its own page
 - [ ] Playlist creation

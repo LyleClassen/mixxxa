@@ -10,7 +10,7 @@ export interface PlannedCue {
   comment: string;
 }
 
-const MAX_DROPS = 4; // 8 slots ÷ 2 cues per drop
+const MAX_SLOTS = 8; // hot-cue slots A-H
 const DEDUPE_BEATS = 8;
 
 /**
@@ -31,22 +31,31 @@ export function matchBeatsBefore(bpm: number, settings: AutoCueSettings): number
 }
 
 /**
- * Plan lead-in + drop hot cues for the detected drops:
- *  1. snap each drop to the beatgrid,
- *  2. dedupe drops snapping within 8 beats (keep higher confidence),
- *  3. cap at 4 drops by confidence, order survivors by time,
- *  4. assign slots in time order (drop i → lead-in 2i+1, drop 2i+2); the
- *     lead-in beat clamps to ≥ 0 and is skipped when it collides with the drop.
+ * Plan start + lead-in + drop + end hot cues:
+ *  1. reserve a slot each for the optional start/end cues; the remaining slots
+ *     (2 per drop) cap how many drops are used,
+ *  2. snap each drop to the beatgrid,
+ *  3. dedupe drops snapping within 8 beats (keep higher confidence),
+ *  4. cap by confidence, then assemble every cue, sort by position, and assign
+ *     slots A-H in time order. The lead-in beat clamps to ≥ 0 and is skipped
+ *     when it collides with the drop.
  */
 export function planAutoCues(
   drops: DropMarker[],
   bpm: number,
   firstBeatSec: number,
   settings: AutoCueSettings,
+  durationSec?: number,
 ): PlannedCue[] {
-  if (!Number.isFinite(bpm) || bpm <= 0 || drops.length === 0) return [];
+  if (!Number.isFinite(bpm) || bpm <= 0) return [];
   const spb = 60 / bpm;
   const beatsBefore = matchBeatsBefore(bpm, settings);
+
+  const wantEnd =
+    settings.addEndCue && durationSec != null && Number.isFinite(durationSec) && durationSec > 0;
+  const startCount = settings.addStartCue ? 1 : 0;
+  const endCount = wantEnd ? 1 : 0;
+  const maxDrops = Math.max(0, Math.floor((MAX_SLOTS - startCount - endCount) / 2));
 
   const snapped = drops.map((d) => ({
     beat: Math.max(0, Math.round((d.time - firstBeatSec) / spb)),
@@ -60,27 +69,44 @@ export function planAutoCues(
     deduped.push(s);
   }
 
-  const kept = deduped.slice(0, MAX_DROPS).sort((a, b) => a.beat - b.beat);
+  const kept = deduped.slice(0, maxDrops).sort((a, b) => a.beat - b.beat);
 
-  const cues: PlannedCue[] = [];
-  kept.forEach((drop, i) => {
-    const leadSlot = 2 * i + 1;
-    const dropSlot = 2 * i + 2;
+  // Assemble all cues without slots/colors yet, then assign them in time order.
+  // The start cue sits at the very beginning of the track (0s), not the first beat.
+  const entries: { positionSec: number; comment: string }[] = [];
+
+  if (settings.addStartCue) {
+    entries.push({ positionSec: 0, comment: "Auto: track start" });
+  }
+
+  for (const drop of kept) {
     const leadBeat = Math.max(0, drop.beat - beatsBefore);
     if (leadBeat !== drop.beat) {
-      cues.push({
-        slot: leadSlot,
+      entries.push({
         positionSec: firstBeatSec + leadBeat * spb,
-        color: slotColor(leadSlot),
         comment: `Auto: ${beatsBefore} beats before drop`,
       });
     }
-    cues.push({
-      slot: dropSlot,
+    entries.push({
       positionSec: firstBeatSec + drop.beat * spb,
-      color: slotColor(dropSlot),
       comment: `Auto: drop (${Math.round(drop.confidence * 100)}%)`,
     });
-  });
-  return cues;
+  }
+
+  if (wantEnd) {
+    const endBeat = Math.round((durationSec! - firstBeatSec) / spb);
+    const targetBeat = Math.max(0, endBeat - settings.beatsBeforeEnd);
+    entries.push({
+      positionSec: firstBeatSec + targetBeat * spb,
+      comment: `Auto: ${settings.beatsBeforeEnd} beats before end`,
+    });
+  }
+
+  return entries
+    .sort((a, b) => a.positionSec - b.positionSec)
+    .slice(0, MAX_SLOTS)
+    .map((e, i) => {
+      const slot = i + 1;
+      return { slot, positionSec: e.positionSec, color: slotColor(slot), comment: e.comment };
+    });
 }

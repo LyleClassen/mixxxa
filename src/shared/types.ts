@@ -192,6 +192,9 @@ export interface AutoCueSettings {
   rules: AutoCueRule[];
   fallbackBeatsBefore: number;
   confidenceThreshold: number;
+  addStartCue: boolean;   // place a cue at the track's first beat
+  addEndCue: boolean;     // place a cue beatsBeforeEnd before the track end
+  beatsBeforeEnd: number; // beats before the end for the end cue
 }
 
 export interface DropMarker {

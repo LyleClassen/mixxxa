@@ -44,6 +44,9 @@ export function AutoCueModal({ track, progress, onClose, onCuesApplied }: AutoCu
         rules: [{ bpmMin: 160, bpmMax: 190, beatsBefore: 64 }],
         fallbackBeatsBefore: 32,
         confidenceThreshold: 0.5,
+        addStartCue: true,
+        addEndCue: true,
+        beatsBeforeEnd: 32,
       }));
   }, []);
 
@@ -88,7 +91,7 @@ export function AutoCueModal({ track, progress, onClose, onCuesApplied }: AutoCu
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Auto cue points</DialogTitle>
           <DialogDescription>
@@ -97,7 +100,7 @@ export function AutoCueModal({ track, progress, onClose, onCuesApplied }: AutoCu
         </DialogHeader>
 
         {phase === "editing" && settings && (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 min-w-0">
             <div className="text-xs text-muted-foreground">
               {trackBpm != null
                 ? <>Track BPM: <span className="text-foreground font-medium">{Math.round(trackBpm)}</span></>
@@ -111,11 +114,11 @@ export function AutoCueModal({ track, progress, onClose, onCuesApplied }: AutoCu
                   <Plus size={14} />
                 </button>
               </div>
-              <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5 items-center text-[10px] uppercase tracking-wider text-muted-foreground">
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-1.5 items-center text-[10px] uppercase tracking-wider text-muted-foreground">
                 <span>BPM min</span><span>BPM max</span><span>Beats before</span><span />
               </div>
               {settings.rules.map((rule, i) => (
-                <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-1.5 items-center">
+                <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-1.5 items-center">
                   <NumInput value={rule.bpmMin} onChange={(v) => updateRule(i, { bpmMin: v })} />
                   <NumInput value={rule.bpmMax} onChange={(v) => updateRule(i, { bpmMax: v })} />
                   <NumInput value={rule.beatsBefore} onChange={(v) => updateRule(i, { beatsBefore: v })} />
@@ -147,6 +150,37 @@ export function AutoCueModal({ track, progress, onClose, onCuesApplied }: AutoCu
                 className="accent-primary cursor-pointer"
               />
             </label>
+
+            <label className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">Add cue at start</span>
+              <input
+                type="checkbox"
+                checked={settings.addStartCue}
+                onChange={(e) => setSettings((s) => s && { ...s, addStartCue: e.target.checked })}
+                className="accent-primary cursor-pointer"
+              />
+            </label>
+
+            <label className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-muted-foreground">Add cue before end</span>
+              <input
+                type="checkbox"
+                checked={settings.addEndCue}
+                onChange={(e) => setSettings((s) => s && { ...s, addEndCue: e.target.checked })}
+                className="accent-primary cursor-pointer"
+              />
+            </label>
+
+            {settings.addEndCue && (
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-muted-foreground">Beats before end</span>
+                <NumInput
+                  value={settings.beatsBeforeEnd}
+                  onChange={(v) => setSettings((s) => s && { ...s, beatsBeforeEnd: v })}
+                  className="w-20"
+                />
+              </label>
+            )}
 
             <DialogFooter>
               <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
@@ -228,7 +262,7 @@ function NumInput({
         const v = parseInt(e.target.value, 10);
         if (Number.isFinite(v)) onChange(v);
       }}
-      className={`bg-muted/50 border border-border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary ${className ?? ""}`}
+      className={`min-w-0 bg-muted/50 border border-border rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary ${className ?? ""}`}
     />
   );
 }
