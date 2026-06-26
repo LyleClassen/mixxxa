@@ -37,6 +37,7 @@ export interface WaveformPlayerHandle {
   getCurrentTime(): number;
   seekTo(sec: number): void;
   setCues(cues: CueMarker[]): void;
+  togglePlayPause(): void;
 }
 
 export const WaveformPlayer = forwardRef<
@@ -79,6 +80,9 @@ export const WaveformPlayer = forwardRef<
       // Driven by App after a hot-cue edit — feeds the existing overlay/minimap
       // update path without re-notifying App (which already has the new cues).
       setCues(next);
+    },
+    togglePlayPause() {
+      ws?.playPause();
     },
   }), [ws]);
 
@@ -177,7 +181,6 @@ export const WaveformPlayer = forwardRef<
           // exportPeaks throws without decoded audio — nothing to save
         }
       }
-      instance.play()?.catch(() => {});
     });
     instance.on("error", () => setError(true));
 

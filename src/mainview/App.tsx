@@ -88,6 +88,21 @@ function App() {
     );
   }, [tracks, debouncedSearch]);
 
+  // ── Spacebar toggles play/pause on the loaded track ─────────────────────────
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.code !== "Space") return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (!loadedTrack) return;
+      e.preventDefault();
+      playerRef.current?.togglePlayPause();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [loadedTrack]);
+
   // ── Initialize analysis worker pool + settings ──────────────────────────────
 
   useEffect(() => {
