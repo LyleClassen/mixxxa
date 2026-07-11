@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings, CueMarker, AutoCueProgress } from "../shared/types";
+import type { ReadinessTier } from "../shared/systemReadiness";
 import { electroview } from "./rpc";
 import { WaveformPlayer, type WaveformPlayerHandle } from "./features/player/WaveformPlayer";
 import { HotCueGrid } from "./features/player/HotCueGrid";
@@ -267,6 +268,11 @@ function App() {
       } catch {}
     }
   }, [selectedPlaylistId]);
+
+  const handleSetReadinessOverride = useCallback(async (trackId: string, tier: ReadinessTier | null) => {
+    const updated = await electroview.rpc!.request.setReadinessOverride({ trackId, tier });
+    setTracks((prev) => prev.map((t) => (t.id === trackId ? updated : t)));
+  }, []);
 
   function syncErrorMessage(): string {
     if (syncError === "not-found") {
@@ -627,6 +633,7 @@ function App() {
                     showIndexColumn={selectedPlaylistId !== COLLECTION_ID}
                     searchActive={debouncedSearch.trim().length > 0}
                     onReorder={handleReorder}
+                    onSetReadinessOverride={handleSetReadinessOverride}
                   />
                 )}
               </div>

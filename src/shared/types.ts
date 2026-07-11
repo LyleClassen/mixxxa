@@ -1,4 +1,7 @@
 import type { RPCSchema } from "electrobun/bun";
+import type { ReadinessTier } from "./systemReadiness";
+
+export type { ReadinessTier };
 
 export interface PlaylistNode {
   id: string;
@@ -31,6 +34,13 @@ export interface Track {
   // Diff flags
   bpmDiffers: boolean;
   keyDiffers: boolean;
+  // System Readiness — effective tier (override ?? analyzed ?? live bitrate
+  // fallback) plus the bits the column's override menu needs to render its
+  // "Auto — <tier> (from N kbps)" line.
+  systemReadiness: ReadinessTier | null;
+  systemReadinessIsOverride: boolean;
+  systemReadinessDerivedTier: ReadinessTier | null;
+  systemReadinessSourceBitrate: number | null;
 }
 
 export type SyncErrorKind =
@@ -271,6 +281,8 @@ export type MixxxRPC = {
       undoAutoCue: { params: { trackId: string }; response: CueMarker[] };
       setHotCue: { params: { trackId: string; slot: number; positionSec: number }; response: CueMarker[] };
       deleteHotCue: { params: { trackId: string; slot: number }; response: CueMarker[] };
+      // System Readiness — manual override
+      setReadinessOverride: { params: { trackId: string; tier: ReadinessTier | null }; response: Track };
     };
     messages: {
       analysisQueueUpdate: { queue: QueueItem[] };

@@ -1,4 +1,4 @@
-import { getDb } from "../db/localDb";
+import { getDb, setReadinessOverride, readTrack } from "../db/localDb";
 import { loadSettings } from "../analysis/settings";
 import { bunLog } from "../bunLog";
 import {
@@ -22,6 +22,8 @@ import type {
   ProgressReport,
   AnalysisResult,
   AnalysisSettings,
+  ReadinessTier,
+  Track,
 } from "../../shared/types";
 
 let dataDir: string;
@@ -100,5 +102,13 @@ export const analysisHandlers = {
 
   reportAnalysisResult: async (result: AnalysisResult): Promise<void> => {
     reportResult(getDb(dataDir), result);
+  },
+
+  setReadinessOverride: async ({ trackId, tier }: { trackId: string; tier: ReadinessTier | null }): Promise<Track> => {
+    const db = getDb(dataDir);
+    setReadinessOverride(db, trackId, tier);
+    const track = readTrack(db, trackId);
+    if (!track) throw new Error("Track not found");
+    return track;
   },
 };

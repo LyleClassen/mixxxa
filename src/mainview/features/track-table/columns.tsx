@@ -1,7 +1,9 @@
 import { createColumnHelper, type RowData } from "@tanstack/react-table";
 import { Music2 } from "lucide-react";
 import type { Track, KeyNotation } from "../../../shared/types";
+import type { ReadinessTier } from "../../../shared/systemReadiness";
 import { displayKey } from "../../../shared/camelot";
+import { SystemReadinessCell } from "./SystemReadinessCell";
 
 // TanStack column definitions for TrackTable. Single source of truth for column
 // order, sizing, labels, default visibility, alignment, and cell rendering.
@@ -10,6 +12,9 @@ import { displayKey } from "../../../shared/camelot";
 declare module "@tanstack/react-table" {
   interface ColumnMeta<TData extends RowData, TValue> {
     align?: "center" | "right";
+  }
+  interface TableMeta<TData extends RowData> {
+    onSetReadinessOverride?: (trackId: string, tier: ReadinessTier | null) => void;
   }
 }
 
@@ -126,6 +131,15 @@ export function buildTrackColumns(keyNotation: KeyNotation) {
       <span className="font-mono text-muted-foreground">
         {info.getValue() != null ? `${info.getValue()}` : "—"}
       </span>
+    ),
+  }),
+  col.accessor("systemReadiness", {
+    id: "system_readiness",
+    header: "Rdy",
+    size: 58,
+    minSize: 50,
+    cell: ({ row, table }) => (
+      <SystemReadinessCell track={row.original} onSetOverride={table.options.meta?.onSetReadinessOverride} />
     ),
   }),
   col.accessor("analyzedBitrate", {

@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-table";
 import { GripVertical } from "lucide-react";
 import type { Track, KeyNotation } from "../../../shared/types";
+import type { ReadinessTier } from "../../../shared/systemReadiness";
 import { buildTrackColumns } from "./columns";
 import { useColumnConfig } from "./useColumnConfig";
 import { ColumnContextMenu } from "./ColumnContextMenu";
@@ -28,6 +29,7 @@ export interface TrackTableProps {
   // Active search filter; reordering a filtered subset is ambiguous, so disable it.
   searchActive?: boolean;
   onReorder?: (orderedTrackIds: string[]) => void;
+  onSetReadinessOverride?: (trackId: string, tier: ReadinessTier | null) => void;
 }
 
 export function TrackTable({
@@ -43,6 +45,7 @@ export function TrackTable({
   searchActive = false,
   showIndexColumn = true,
   onReorder,
+  onSetReadinessOverride,
 }: TrackTableProps) {
   const columnConfig = useColumnConfig(storageKey);
   const columns = useMemo(() => buildTrackColumns(keyNotation), [keyNotation]);
@@ -69,6 +72,7 @@ export function TrackTable({
     onColumnVisibilityChange: columnConfig.onColumnVisibilityChange,
     enableColumnResizing: true,
     columnResizeMode: "onChange",
+    meta: { onSetReadinessOverride },
   });
 
   const reorderRef = useRef<{ colId: string; startX: number } | null>(null);

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { mkdirSync } from "node:fs";
 import { SCHEMA_SQL } from "./schema";
 import { parseAnyKey, formatCamelot } from "../../shared/camelot";
+import { deriveReadinessTier, type ReadinessTier } from "../../shared/systemReadiness";
 import type { PlaylistNode, Track, HistoryEntry, CueMarker } from "../../shared/types";
 
 let db: Database | null = null;
@@ -31,6 +32,8 @@ const CONTENT_ANALYSIS_COLUMNS = [
   "analyzed_first_beat_sec REAL",
   "waveform_peaks TEXT",
   "waveform_duration REAL",
+  "analyzed_readiness TEXT",
+  "readiness_override TEXT",
 ];
 
 // Columns on `content` that hold locally-computed data Rekordbox knows nothing
@@ -184,6 +187,8 @@ type ContentRow = {
   analyzed_danceability: number | null;
   fingerprint: string | null;
   analysis_status: string | null;
+  analyzed_readiness: string | null;
+  readiness_override: string | null;
 };
 
 // Canonicalise any key notation to Camelot so the same key spelled differently
@@ -209,6 +214,15 @@ function rowToTrack(row: ContentRow): Track {
       ? canonicalKey(rbKey) !== canonicalKey(analyzedKey)
       : false;
 
+  // Effective tier precedence: manual override → stored analysis product →
+  // live fallback computed from whatever bitrate we have. The live fallback
+  // covers tracks that haven't been analyzed yet, so every track shows a
+  // rating immediately.
+  const sourceBitrate = row.analyzed_bitrate ?? row.bit_rate ?? null;
+  const derivedTier =
+    (row.analyzed_readiness as ReadinessTier | null) ?? deriveReadinessTier(sourceBitrate, row.file_path);
+  const override = row.readiness_override as ReadinessTier | null;
+
   return {
     id: row.content_id,
     title: row.title ?? "",
@@ -231,6 +245,10 @@ function rowToTrack(row: ContentRow): Track {
     analysisStatus: (row.analysis_status as Track["analysisStatus"]) ?? null,
     bpmDiffers,
     keyDiffers,
+    systemReadiness: override ?? derivedTier,
+    systemReadinessIsOverride: override != null,
+    systemReadinessDerivedTier: derivedTier,
+    systemReadinessSourceBitrate: sourceBitrate,
   };
 }
 
@@ -253,7 +271,9 @@ const TRACK_SELECT = `
   c.analyzed_dynamic_range_db,
   c.analyzed_danceability,
   c.fingerprint,
-  c.analysis_status
+  c.analysis_status,
+  c.analyzed_readiness,
+  c.readiness_override
 `;
 
 export function readPlaylistTracks(database: Database, playlistId: string): Track[] {
@@ -560,10 +580,30 @@ export function writeFingerprint(database: Database, trackId: string, fingerprin
 }
 
 export function writeAnalyzedBitrate(database: Database, trackId: string, bitrate: number, timeBitrateMs: number): void {
+  const row = database.query<{ file_path: string | null }, [string]>(
+    "SELECT file_path FROM content WHERE id = ?"
+  ).get(trackId);
+  const readiness = deriveReadinessTier(bitrate, row?.file_path ?? null);
   database.run(
-    "UPDATE content SET analyzed_bitrate = ?, time_bitrate_ms = ? WHERE id = ?",
-    [bitrate, timeBitrateMs, trackId],
+    "UPDATE content SET analyzed_bitrate = ?, analyzed_readiness = ?, time_bitrate_ms = ? WHERE id = ?",
+    [bitrate, readiness, timeBitrateMs, trackId],
   );
+}
+
+/** Set (or clear, with `tier: null`) the manual System Readiness override. */
+export function setReadinessOverride(database: Database, trackId: string, tier: ReadinessTier | null): void {
+  database.run("UPDATE content SET readiness_override = ? WHERE id = ?", [tier, trackId]);
+}
+
+export function readTrack(database: Database, trackId: string): Track | null {
+  const row = database.query<ContentRow, [string]>(`
+    SELECT ${TRACK_SELECT}
+    FROM content c
+    LEFT JOIN artist a ON a.id = c.artist_id
+    LEFT JOIN key k ON k.id = c.key_id
+    WHERE c.id = ?
+  `).get(trackId);
+  return row ? rowToTrack(row) : null;
 }
 
 export function readAnalysisHistory(database: Database): HistoryEntry[] {
