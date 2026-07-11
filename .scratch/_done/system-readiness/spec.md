@@ -1,6 +1,6 @@
 # Spec: System Readiness rating
 
-Status: ready for implementation
+Status: IMPLEMENTED (2026-07-11, commit aa8d23d) — do not reopen; see map.md
 Source: wayfinder map `.scratch/system-readiness/map.md` (decisions 2026-07-11)
 
 ## Summary

@@ -1,6 +1,8 @@
-# Map: System Readiness rating
+# Map: System Readiness rating — COMPLETED (2026-07-11)
 
 Label: wayfinder:map
+
+**Status: DONE. Implemented in commit `aa8d23d` (feat: add System Readiness rating column to track table). Do not resume work here — this directory is closed.**
 
 ## Destination
 
