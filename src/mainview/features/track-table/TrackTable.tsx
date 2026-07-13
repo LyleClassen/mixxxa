@@ -18,6 +18,8 @@ export interface TrackTableProps {
   onAnalyzeTrack?: (track: Track) => void;
   onAnalyzePlaylist?: (playlistId: string) => void;
   onAutoCue?: (track: Track) => void;
+  onIdentifyTrack?: (track: Track) => void;
+  onDiscardPendingMetadata?: (trackId: string) => void;
   storageKey: string;
   currentPlaylistId: string | null;
   keyNotation: KeyNotation;
@@ -38,6 +40,8 @@ export function TrackTable({
   onAnalyzeTrack,
   onAnalyzePlaylist,
   onAutoCue,
+  onIdentifyTrack,
+  onDiscardPendingMetadata,
   storageKey,
   currentPlaylistId,
   keyNotation,
@@ -72,7 +76,7 @@ export function TrackTable({
     onColumnVisibilityChange: columnConfig.onColumnVisibilityChange,
     enableColumnResizing: true,
     columnResizeMode: "onChange",
-    meta: { onSetReadinessOverride },
+    meta: { onSetReadinessOverride, onDiscardPendingMetadata },
   });
 
   const reorderRef = useRef<{ colId: string; startX: number } | null>(null);
@@ -189,6 +193,7 @@ export function TrackTable({
           onAnalyzeTrack={onAnalyzeTrack ?? (() => {})}
           onAnalyzePlaylist={onAnalyzePlaylist ?? (() => {})}
           onAutoCue={onAutoCue}
+          onIdentifyTrack={onIdentifyTrack}
           onClose={() => setRowMenu(null)}
         />
       )}

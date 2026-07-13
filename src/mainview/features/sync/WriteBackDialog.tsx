@@ -48,15 +48,19 @@ export function WriteBackDialog({ open, onOpenChange, onWritten }: WriteBackDial
   const [phase, setPhase] = useState<Phase>("loading");
   const [diff, setDiff] = useState<RekordboxDiff | null>(null);
   const [errorKind, setErrorKind] = useState<SyncErrorKind | null>(null);
-  const [aspects, setAspects] = useState<WriteBackAspects>({ ordering: true, bpm: true, key: true });
+  const [aspects, setAspects] = useState<WriteBackAspects>({ ordering: true, bpm: true, key: true, metadata: true });
   const [progress, setProgress] = useState<WriteBackProgress | null>(null);
   const [summary, setSummary] = useState<WriteBackSummary | null>(null);
 
   const bpmChanges = diff?.trackChanges.filter((c) => c.field === "bpm") ?? [];
   const keyChanges = diff?.trackChanges.filter((c) => c.field === "key") ?? [];
+  const metadataChanges = diff?.trackChanges.filter(
+    (c) => c.field === "artist" || c.field === "title" || c.field === "album",
+  ) ?? [];
   const hasOrdering = (diff?.playlists.length ?? 0) > 0;
   const hasBpm = bpmChanges.length > 0;
   const hasKey = keyChanges.length > 0;
+  const hasMetadata = metadataChanges.length > 0;
 
   // Compute the diff each time the dialog opens.
   useEffect(() => {
@@ -67,7 +71,7 @@ export function WriteBackDialog({ open, onOpenChange, onWritten }: WriteBackDial
     setErrorKind(null);
     setProgress(null);
     setSummary(null);
-    setAspects({ ordering: true, bpm: true, key: true });
+    setAspects({ ordering: true, bpm: true, key: true, metadata: true });
 
     electroview.rpc!.request.diffRekordbox()
       .then((result) => {
@@ -121,7 +125,8 @@ export function WriteBackDialog({ open, onOpenChange, onWritten }: WriteBackDial
   const nothingSelected =
     (!hasOrdering || !aspects.ordering) &&
     (!hasBpm || !aspects.bpm) &&
-    (!hasKey || !aspects.key);
+    (!hasKey || !aspects.key) &&
+    (!hasMetadata || !aspects.metadata);
 
   const pct = progress && progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
 
@@ -194,6 +199,19 @@ export function WriteBackDialog({ open, onOpenChange, onWritten }: WriteBackDial
                 ))}
               </AspectSection>
             )}
+
+            {hasMetadata && (
+              <AspectSection
+                label="Metadata (artist / title / album)"
+                count={metadataChanges.length}
+                checked={aspects.metadata}
+                onToggle={() => toggle("metadata")}
+              >
+                {metadataChanges.map((c) => (
+                  <ChangeRow key={`${c.trackId}-${c.field}`} title={`${c.title} · ${c.field}`} oldValue={c.oldValue} newValue={c.newValue} />
+                ))}
+              </AspectSection>
+            )}
           </div>
         )}
 
@@ -217,6 +235,7 @@ export function WriteBackDialog({ open, onOpenChange, onWritten }: WriteBackDial
               <li>{summary.playlistsReordered} playlist(s) reordered</li>
               <li>{summary.bpmUpdated} BPM value(s) updated</li>
               <li>{summary.keysUpdated} key(s) updated</li>
+              <li>{summary.metadataUpdated} metadata field(s) updated</li>
             </ul>
           </div>
         )}

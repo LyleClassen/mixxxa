@@ -15,7 +15,20 @@ declare module "@tanstack/react-table" {
   }
   interface TableMeta<TData extends RowData> {
     onSetReadinessOverride?: (trackId: string, tier: ReadinessTier | null) => void;
+    onDiscardPendingMetadata?: (trackId: string) => void;
   }
+}
+
+// Small dot badge marking a fingerprint-identified value staged for the next
+// Rekordbox sync — click discards the staged change.
+function PendingBadge({ trackId, onDiscard }: { trackId: string; onDiscard?: (trackId: string) => void }) {
+  return (
+    <button
+      title="Pending sync — click to discard"
+      onClick={(e) => { e.stopPropagation(); onDiscard?.(trackId); }}
+      className="shrink-0 w-1.5 h-1.5 rounded-full bg-primary inline-block align-middle"
+    />
+  );
 }
 
 const col = createColumnHelper<Track>();
@@ -47,24 +60,50 @@ export function buildTrackColumns(keyNotation: KeyNotation) {
     header: "Artist",
     size: 160,
     minSize: 40,
-    cell: (info) => <span className="font-medium">{info.getValue() || "—"}</span>,
+    cell: ({ row, table }) => {
+      const track = row.original;
+      return (
+        <span className="font-medium inline-flex items-center gap-1.5">
+          {track.pendingArtist ?? track.artist ?? "—"}
+          {track.pendingArtist != null && (
+            <PendingBadge trackId={track.id} onDiscard={table.options.meta?.onDiscardPendingMetadata} />
+          )}
+        </span>
+      );
+    },
   }),
   col.accessor("title", {
     header: "Title",
     size: 200,
     minSize: 40,
     enableHiding: false,
-    cell: (info) => (
-      <span className="text-muted-foreground group-hover:text-foreground transition-colors">
-        {info.getValue() || "—"}
-      </span>
-    ),
+    cell: ({ row, table }) => {
+      const track = row.original;
+      return (
+        <span className="text-muted-foreground group-hover:text-foreground transition-colors inline-flex items-center gap-1.5">
+          {track.pendingTitle ?? track.title ?? "—"}
+          {track.pendingTitle != null && (
+            <PendingBadge trackId={track.id} onDiscard={table.options.meta?.onDiscardPendingMetadata} />
+          )}
+        </span>
+      );
+    },
   }),
   col.accessor("album", {
     header: "Album",
     size: 160,
     minSize: 40,
-    cell: (info) => <span className="text-muted-foreground">{info.getValue() || "—"}</span>,
+    cell: ({ row, table }) => {
+      const track = row.original;
+      return (
+        <span className="text-muted-foreground inline-flex items-center gap-1.5">
+          {track.pendingAlbum ?? track.album ?? "—"}
+          {track.pendingAlbum != null && (
+            <PendingBadge trackId={track.id} onDiscard={table.options.meta?.onDiscardPendingMetadata} />
+          )}
+        </span>
+      );
+    },
   }),
   col.accessor("bpm", {
     header: "BPM",

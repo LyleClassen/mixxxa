@@ -107,4 +107,21 @@ CREATE TABLE IF NOT EXISTS cue (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cue_content ON cue(content_id);
+
+-- Permanent record of an applied fingerprint-lookup identification, kept even
+-- after the pending metadata it staged is cleared by a successful sync — lets
+-- a future "revert identification" work without re-capturing originals.
+CREATE TABLE IF NOT EXISTS metadata_provenance (
+  id TEXT PRIMARY KEY,
+  content_id TEXT NOT NULL,
+  recording_mbid TEXT,
+  acoustid_track_id TEXT,
+  score REAL NOT NULL,
+  original_artist TEXT,
+  original_title TEXT,
+  original_album TEXT,
+  applied_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_metadata_provenance_content ON metadata_provenance(content_id);
 `;

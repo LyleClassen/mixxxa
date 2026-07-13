@@ -7,6 +7,7 @@ import { initWriteBackHandlers, initWriteBack } from "./rpc/rekordbox-writeback"
 import { initAnalysisHandlers } from "./rpc/analysis";
 import { initWaveformHandlers } from "./rpc/waveform";
 import { initCueHandlers, initCues } from "./rpc/cues";
+import { initIdentifyHandlers, initIdentify } from "./rpc/identify";
 import { closeDb, getDb } from "./db/localDb";
 import { startAudioServer, stopAudioServer } from "./audioServer";
 import { initAnalysis } from "./analysis/index";
@@ -37,6 +38,7 @@ initWriteBackHandlers(Utils.paths.userData);
 initAnalysisHandlers(Utils.paths.userData);
 initWaveformHandlers(Utils.paths.userData);
 initCueHandlers(Utils.paths.userData);
+initIdentifyHandlers(Utils.paths.userData);
 startAudioServer(Utils.paths.userData);
 
 const db = getDb(Utils.paths.userData);
@@ -62,6 +64,10 @@ initCues((p) => {
 
 initWriteBack((p) => {
   rpc.send.writeBackProgress(p);
+});
+
+initIdentify((p) => {
+  rpc.send.identifyProgress(p);
 });
 
 const url = await getMainViewUrl();

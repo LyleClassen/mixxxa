@@ -14,6 +14,8 @@ import {
   readNonFolderPlaylists,
   readLocalPlaylistOrder,
   readAnalyzedTracks,
+  readPendingMetadataTracks,
+  clearPendingMetadata,
 } from "../db/localDb";
 import { getDefaultMasterDbPath, makeSyncError } from "./rekordboxShared";
 import {
@@ -104,6 +106,8 @@ function computeDiff(rbDb: MasterDb): RekordboxDiff {
 
   // ── Analyzed BPM / key promotions ────────────────────────────────────────────
   const keyNameById = new Map(rbDb.getKeys().map((k) => [k.id, k.name]));
+  const artistNameById = new Map(rbDb.getArtists().map((a) => [a.id, a.name]));
+  const albumNameById = new Map(rbDb.getAlbums().map((a) => [a.id, a.name]));
   const liveById = new Map(rbDb.getContents().map((c) => [c.id, c]));
 
   const trackChanges: TrackValueChange[] = [];
@@ -133,6 +137,51 @@ function computeDiff(rbDb: MasterDb): RekordboxDiff {
           field: "key",
           oldValue: liveKey || "—",
           newValue: track.analyzedKey,
+        });
+      }
+    }
+  }
+
+  // ── Pending fingerprint-identification metadata (artist/title/album) ────────
+  for (const track of readPendingMetadataTracks(db)) {
+    const live = liveById.get(track.id);
+    if (!live) continue;
+
+    if (track.pendingArtist != null) {
+      const liveArtist = live.artistId != null ? (artistNameById.get(live.artistId) ?? "") : "";
+      if (liveArtist !== track.pendingArtist) {
+        trackChanges.push({
+          trackId: track.id,
+          title: track.title,
+          field: "artist",
+          oldValue: liveArtist || "—",
+          newValue: track.pendingArtist,
+        });
+      }
+    }
+
+    if (track.pendingTitle != null) {
+      const liveTitle = live.title ?? "";
+      if (liveTitle !== track.pendingTitle) {
+        trackChanges.push({
+          trackId: track.id,
+          title: track.title,
+          field: "title",
+          oldValue: liveTitle || "—",
+          newValue: track.pendingTitle,
+        });
+      }
+    }
+
+    if (track.pendingAlbum != null) {
+      const liveAlbum = live.albumId != null ? (albumNameById.get(live.albumId) ?? "") : "";
+      if (liveAlbum !== track.pendingAlbum) {
+        trackChanges.push({
+          trackId: track.id,
+          title: track.title,
+          field: "album",
+          oldValue: liveAlbum || "—",
+          newValue: track.pendingAlbum,
         });
       }
     }
@@ -180,10 +229,13 @@ export const writeBackHandlers = {
     const keyChanges = selectedAspects.key
       ? confirmedDiff.trackChanges.filter((c) => c.field === "key")
       : [];
+    const metadataChanges = selectedAspects.metadata
+      ? confirmedDiff.trackChanges.filter((c) => c.field === "artist" || c.field === "title" || c.field === "album")
+      : [];
 
-    const total = playlists.length + bpmChanges.length + keyChanges.length;
+    const total = playlists.length + bpmChanges.length + keyChanges.length + metadataChanges.length;
     if (total === 0) {
-      return { playlistsReordered: 0, bpmUpdated: 0, keysUpdated: 0 };
+      return { playlistsReordered: 0, bpmUpdated: 0, keysUpdated: 0, metadataUpdated: 0 };
     }
 
     // Show the bar immediately and yield once so the IPC message flushes before
@@ -196,7 +248,7 @@ export const writeBackHandlers = {
     createBackup(getDefaultMasterDbPath(), backupsDir, "prewrite");
     pruneBackups(backupsDir, loadRekordboxSettings(getDb(dataDir)).maxBackups);
 
-    const summary: WriteBackSummary = { playlistsReordered: 0, bpmUpdated: 0, keysUpdated: 0 };
+    const summary: WriteBackSummary = { playlistsReordered: 0, bpmUpdated: 0, keysUpdated: 0, metadataUpdated: 0 };
     let current = 0;
 
     try {
@@ -237,6 +289,35 @@ export const writeBackHandlers = {
         sendProgress?.({ phase: "key", current, total, label: `Key · ${change.title}` });
         await new Promise((r) => setTimeout(r, 0));
       }
+
+      // ── Metadata (artist/title/album, from fingerprint identification) ──────
+      for (const change of metadataChanges) {
+        if (change.field === "title") {
+          const content = rbDb.getContentById(change.trackId);
+          if (content) {
+            content.title = change.newValue;
+            rbDb.updateContent(content);
+          }
+        } else if (change.field === "artist") {
+          rbDb.updateContentArtist(change.trackId, change.newValue);
+        } else if (change.field === "album") {
+          rbDb.updateContentAlbum(change.trackId, change.newValue);
+        }
+        summary.metadataUpdated++;
+        current++;
+        sendProgress?.({ phase: "metadata", current, total, label: `Metadata · ${change.title}` });
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      // Metadata changes always ride to completion together (staged as one
+      // reviewed candidate per track) — clear every track's pending fields once
+      // the metadata aspect has synced, so the "pending sync" badge clears even
+      // for tracks whose staged value already matched Rekordbox.
+      if (selectedAspects.metadata) {
+        for (const track of readPendingMetadataTracks(getDb(dataDir))) {
+          clearPendingMetadata(getDb(dataDir), track.id);
+        }
+      }
     } catch (err) {
       bunLog("WRITEBACK", `write failed: ${(err as Error).message}`);
       throw makeSyncError(
@@ -247,7 +328,7 @@ export const writeBackHandlers = {
 
     bunLog(
       "WRITEBACK",
-      `wrote ${summary.playlistsReordered} playlists, ${summary.bpmUpdated} BPM, ${summary.keysUpdated} keys`,
+      `wrote ${summary.playlistsReordered} playlists, ${summary.bpmUpdated} BPM, ${summary.keysUpdated} keys, ${summary.metadataUpdated} metadata`,
     );
     return summary;
   },

@@ -41,6 +41,10 @@ export interface Track {
   systemReadinessIsOverride: boolean;
   systemReadinessDerivedTier: ReadinessTier | null;
   systemReadinessSourceBitrate: number | null;
+  // Fingerprint-lookup identification — staged (not yet synced) metadata.
+  pendingArtist: string | null;
+  pendingTitle: string | null;
+  pendingAlbum: string | null;
 }
 
 export type SyncErrorKind =
@@ -65,7 +69,7 @@ export interface PlaylistReorderDiff {
 export interface TrackValueChange {
   trackId: string;
   title: string;
-  field: "bpm" | "key";
+  field: "bpm" | "key" | "artist" | "title" | "album";
   oldValue: string; // current Rekordbox value (for display)
   newValue: string; // analyzed value to write (for display)
 }
@@ -83,16 +87,18 @@ export interface WriteBackAspects {
   ordering: boolean;
   bpm: boolean;
   key: boolean;
+  metadata: boolean;
 }
 
 export interface WriteBackSummary {
   playlistsReordered: number;
   bpmUpdated: number;
   keysUpdated: number;
+  metadataUpdated: number;
 }
 
 export interface WriteBackProgress {
-  phase: "backup" | "ordering" | "bpm" | "key";
+  phase: "backup" | "ordering" | "bpm" | "key" | "metadata";
   current: number;
   total: number;
   label: string;
@@ -233,6 +239,29 @@ export interface AutoCueProgress {
   pct: number;  // 0..1
 }
 
+// ── Fingerprint identification (AcoustID lookup) types ───────────────────────
+
+// A ranked, deduped candidate match — one AcoustID result × MusicBrainz recording,
+// flattened for the review pick-list.
+export interface IdentifyCandidate {
+  recordingMbid: string | null;
+  acoustidTrackId: string;
+  score: number; // 0..1
+  artist: string | null;
+  title: string | null;
+  album: string | null;
+  durationSec: number | null;
+}
+
+export interface IdentifyLookupResult {
+  candidates: IdentifyCandidate[];
+}
+
+export interface IdentifyProgress {
+  trackId: string;
+  phase: "fingerprint" | "duration" | "lookup";
+}
+
 // ── RPC ───────────────────────────────────────────────────────────────────────
 
 export type MixxxRPC = {
@@ -283,11 +312,16 @@ export type MixxxRPC = {
       deleteHotCue: { params: { trackId: string; slot: number }; response: CueMarker[] };
       // System Readiness — manual override
       setReadinessOverride: { params: { trackId: string; tier: ReadinessTier | null }; response: Track };
+      // Fingerprint identification (AcoustID lookup) — single track
+      identifyTrack: { params: { trackId: string }; response: IdentifyLookupResult };
+      applyIdentifiedMetadata: { params: { trackId: string; candidate: IdentifyCandidate }; response: Track };
+      discardIdentifiedMetadata: { params: { trackId: string }; response: Track };
     };
     messages: {
       analysisQueueUpdate: { queue: QueueItem[] };
       autoCueProgress: AutoCueProgress;
       writeBackProgress: WriteBackProgress;
+      identifyProgress: IdentifyProgress;
     };
   }>;
   webview: RPCSchema<{ requests: {}; messages: {} }>;

@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings, CueMarker, AutoCueProgress } from "../shared/types";
+import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings, CueMarker, AutoCueProgress, IdentifyProgress } from "../shared/types";
 import type { ReadinessTier } from "../shared/systemReadiness";
 import { electroview } from "./rpc";
 import { WaveformPlayer, type WaveformPlayerHandle } from "./features/player/WaveformPlayer";
 import { HotCueGrid } from "./features/player/HotCueGrid";
 import { AutoCueModal } from "./features/player/AutoCueModal";
+import { IdentifyTrackModal } from "./features/identify/IdentifyTrackModal";
 import { TrackTable } from "./features/track-table";
 import { AnalysisPanel } from "./features/analysis/AnalysisPanel";
 import { SettingsPage } from "./features/settings/SettingsPage";
@@ -56,6 +57,8 @@ function App() {
   const [cues, setCues] = useState<CueMarker[]>([]);
   const [autoCueModalTrack, setAutoCueModalTrack] = useState<Track | null>(null);
   const [autoCueProgress, setAutoCueProgress] = useState<{ step: string; pct: number } | null>(null);
+  const [identifyModalTrack, setIdentifyModalTrack] = useState<Track | null>(null);
+  const [identifyProgress, setIdentifyProgress] = useState<IdentifyProgress | null>(null);
   const [syncState, setSyncState] = useState<SyncState>("idle");
   const [syncError, setSyncError] = useState<SyncErrorKind | null>(null);
   // True while re-importing the Rekordbox library in place (selection preserved).
@@ -164,6 +167,22 @@ function App() {
       anyRpc.removeMessageListener("autoCueProgress", handler);
     };
   }, [autoCueModalTrack?.id]);
+
+  // Subscribe to identify (fingerprint lookup) progress, scoped to the track in the modal.
+  useEffect(() => {
+    if (!electroview.rpc) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyRpc = electroview.rpc as any;
+    const handler = (msg: IdentifyProgress) => {
+      if (msg.trackId === identifyModalTrack?.id) {
+        setIdentifyProgress(msg);
+      }
+    };
+    anyRpc.addMessageListener("identifyProgress", handler);
+    return () => {
+      anyRpc.removeMessageListener("identifyProgress", handler);
+    };
+  }, [identifyModalTrack?.id]);
 
   function reloadTracks() {
     if (selectedPlaylistId === COLLECTION_ID) {
@@ -376,6 +395,20 @@ function App() {
   const handleAutoCue = useCallback((track: Track) => {
     setAutoCueProgress(null);
     setAutoCueModalTrack(track);
+  }, []);
+
+  const handleIdentifyTrack = useCallback((track: Track) => {
+    setIdentifyProgress(null);
+    setIdentifyModalTrack(track);
+  }, []);
+
+  const handleIdentifyApplied = useCallback((updated: Track) => {
+    setTracks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+  }, []);
+
+  const handleDiscardPendingMetadata = useCallback(async (trackId: string) => {
+    const updated = await electroview.rpc!.request.discardIdentifiedMetadata({ trackId });
+    setTracks((prev) => prev.map((t) => (t.id === trackId ? updated : t)));
   }, []);
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -626,6 +659,8 @@ function App() {
                     onAnalyzeTrack={handleAnalyzeTrack}
                     onAnalyzePlaylist={handleAnalyzePlaylist}
                     onAutoCue={handleAutoCue}
+                    onIdentifyTrack={handleIdentifyTrack}
+                    onDiscardPendingMetadata={handleDiscardPendingMetadata}
                     storageKey="mixxxa.trackTableColumns"
                     currentPlaylistId={selectedPlaylistId === COLLECTION_ID ? null : selectedPlaylistId}
                     keyNotation={analysisSettings.keyNotation}
@@ -689,6 +724,15 @@ function App() {
           progress={autoCueProgress}
           onClose={() => setAutoCueModalTrack(null)}
           onCuesApplied={applyCuesIfLoaded}
+        />
+      )}
+
+      {identifyModalTrack && (
+        <IdentifyTrackModal
+          track={identifyModalTrack}
+          progress={identifyProgress}
+          onClose={() => setIdentifyModalTrack(null)}
+          onApplied={handleIdentifyApplied}
         />
       )}
 

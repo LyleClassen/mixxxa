@@ -34,6 +34,9 @@ const CONTENT_ANALYSIS_COLUMNS = [
   "waveform_duration REAL",
   "analyzed_readiness TEXT",
   "readiness_override TEXT",
+  "pending_artist TEXT",
+  "pending_title TEXT",
+  "pending_album TEXT",
 ];
 
 // Columns on `content` that hold locally-computed data Rekordbox knows nothing
@@ -189,6 +192,9 @@ type ContentRow = {
   analysis_status: string | null;
   analyzed_readiness: string | null;
   readiness_override: string | null;
+  pending_artist: string | null;
+  pending_title: string | null;
+  pending_album: string | null;
 };
 
 // Canonicalise any key notation to Camelot so the same key spelled differently
@@ -249,6 +255,9 @@ function rowToTrack(row: ContentRow): Track {
     systemReadinessIsOverride: override != null,
     systemReadinessDerivedTier: derivedTier,
     systemReadinessSourceBitrate: sourceBitrate,
+    pendingArtist: row.pending_artist ?? null,
+    pendingTitle: row.pending_title ?? null,
+    pendingAlbum: row.pending_album ?? null,
   };
 }
 
@@ -273,7 +282,10 @@ const TRACK_SELECT = `
   c.fingerprint,
   c.analysis_status,
   c.analyzed_readiness,
-  c.readiness_override
+  c.readiness_override,
+  c.pending_artist,
+  c.pending_title,
+  c.pending_album
 `;
 
 export function readPlaylistTracks(database: Database, playlistId: string): Track[] {
@@ -593,6 +605,90 @@ export function writeAnalyzedBitrate(database: Database, trackId: string, bitrat
 /** Set (or clear, with `tier: null`) the manual System Readiness override. */
 export function setReadinessOverride(database: Database, trackId: string, tier: ReadinessTier | null): void {
   database.run("UPDATE content SET readiness_override = ? WHERE id = ?", [tier, trackId]);
+}
+
+// ── Metadata identification (fingerprint lookup) helpers ─────────────────────
+
+export interface MetadataLookupInputs {
+  fingerprint: string | null;
+  filePath: string | null;
+  waveformDuration: number | null;
+}
+
+export function readMetadataLookupInputs(database: Database, trackId: string): MetadataLookupInputs | null {
+  const row = database.query<
+    { fingerprint: string | null; file_path: string | null; waveform_duration: number | null },
+    [string]
+  >("SELECT fingerprint, file_path, waveform_duration FROM content WHERE id = ?").get(trackId);
+  if (!row) return null;
+  return { fingerprint: row.fingerprint, filePath: row.file_path, waveformDuration: row.waveform_duration };
+}
+
+export interface PendingMetadata {
+  artist: string | null;
+  title: string | null;
+  album: string | null;
+}
+
+export function writePendingMetadata(database: Database, trackId: string, values: PendingMetadata): void {
+  database.run(
+    "UPDATE content SET pending_artist = ?, pending_title = ?, pending_album = ? WHERE id = ?",
+    [values.artist, values.title, values.album, trackId],
+  );
+}
+
+export function clearPendingMetadata(database: Database, trackId: string): void {
+  database.run(
+    "UPDATE content SET pending_artist = NULL, pending_title = NULL, pending_album = NULL WHERE id = ?",
+    [trackId],
+  );
+}
+
+/** Tracks with at least one staged pending metadata field — feeds the write-back diff. */
+export function readPendingMetadataTracks(
+  database: Database,
+): Array<{ id: string; title: string; pendingArtist: string | null; pendingTitle: string | null; pendingAlbum: string | null }> {
+  return database.query<
+    { id: string; title: string | null; pending_artist: string | null; pending_title: string | null; pending_album: string | null },
+    []
+  >(
+    "SELECT id, title, pending_artist, pending_title, pending_album FROM content WHERE pending_artist IS NOT NULL OR pending_title IS NOT NULL OR pending_album IS NOT NULL"
+  ).all().map((r) => ({
+    id: r.id,
+    title: r.title ?? "",
+    pendingArtist: r.pending_artist,
+    pendingTitle: r.pending_title,
+    pendingAlbum: r.pending_album,
+  }));
+}
+
+export interface MetadataProvenanceEntry {
+  contentId: string;
+  recordingMbid: string | null;
+  acoustidTrackId: string | null;
+  score: number;
+  originalArtist: string | null;
+  originalTitle: string | null;
+  originalAlbum: string | null;
+}
+
+export function insertMetadataProvenance(database: Database, entry: MetadataProvenanceEntry): void {
+  database.run(
+    `INSERT INTO metadata_provenance
+      (id, content_id, recording_mbid, acoustid_track_id, score, original_artist, original_title, original_album, applied_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      crypto.randomUUID(),
+      entry.contentId,
+      entry.recordingMbid,
+      entry.acoustidTrackId,
+      entry.score,
+      entry.originalArtist,
+      entry.originalTitle,
+      entry.originalAlbum,
+      Date.now(),
+    ],
+  );
 }
 
 export function readTrack(database: Database, trackId: string): Track | null {

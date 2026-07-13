@@ -1,6 +1,7 @@
 import ffprobeStatic from "ffprobe-static";
 import { existsSync } from "node:fs";
 import { bunLog } from "../bunLog";
+import { readContainerDurationSec } from "./duration";
 
 const FFPROBE: string = ffprobeStatic.path ?? "ffprobe";
 
@@ -24,41 +25,9 @@ export async function analyzeBitrate(filePath: string): Promise<BitrateResult> {
   }
 
   // Pass 1: get stream duration from container header
-  const durationProc = Bun.spawn(
-    [
-      FFPROBE,
-      "-v", "quiet",
-      "-select_streams", "a:0",
-      "-show_entries", "stream=duration",
-      "-of", "csv=p=0",
-      filePath,
-    ],
-    { stdout: "pipe", stderr: "pipe" },
-  );
-
-  const [durationStdout, durationStderr] = await Promise.all([
-    new Response(durationProc.stdout).text(),
-    new Response(durationProc.stderr).text(),
-  ]);
-
-  const durationExitCode = await durationProc.exited;
-  bunLog("bitrate", `duration ffprobe exit code: ${durationExitCode}`);
-  if (durationStderr.trim()) bunLog("bitrate", `duration ffprobe stderr: ${durationStderr.trim()}`);
-  bunLog("bitrate", `duration stdout: ${durationStdout.trim()}`);
-
-  if (durationExitCode !== 0) {
-    return { ok: false, reason: `ffprobe (duration) exited ${durationExitCode}: ${durationStderr.trim()}` };
-  }
-
-  const durationRaw = durationStdout.trim();
-  if (!durationRaw || durationRaw === "N/A") {
-    bunLog("bitrate", `could not determine stream duration`);
-    return { ok: false, reason: "could not determine stream duration" };
-  }
-
-  const durationSec = parseFloat(durationRaw);
-  if (isNaN(durationSec) || durationSec <= 0) {
-    bunLog("bitrate", `invalid duration: ${durationRaw}`);
+  const durationSec = await readContainerDurationSec(filePath);
+  bunLog("bitrate", `duration: ${durationSec ?? "unavailable"}`);
+  if (durationSec == null) {
     return { ok: false, reason: "could not determine stream duration" };
   }
 
