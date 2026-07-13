@@ -52,7 +52,11 @@ export async function lookupFingerprint(fingerprint: string, durationSec: number
       client: ACOUSTID_CLIENT_KEY,
       duration: String(Math.round(durationSec)),
       fingerprint,
-      meta: "recordings+releasegroups+compress",
+      // AcoustID's documented "recordings+releasegroups" separator is a
+      // URL-encoded space — pass real spaces so URLSearchParams encodes them
+      // as '+'. A literal '+' becomes %2B and the meta param is ignored,
+      // returning matches with no recording metadata.
+      meta: "recordings releasegroups compress",
     }).toString();
     const gzipped = Bun.gzipSync(new TextEncoder().encode(body));
 
