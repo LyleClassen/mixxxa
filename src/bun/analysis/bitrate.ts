@@ -1,9 +1,7 @@
-import ffprobeStatic from "ffprobe-static";
 import { existsSync } from "node:fs";
 import { bunLog } from "../bunLog";
+import { FFPROBE } from "./binaries";
 import { readContainerDurationSec } from "./duration";
-
-const FFPROBE: string = ffprobeStatic.path ?? "ffprobe";
 
 export type BitrateResult =
   | { ok: true; bitrate: number; packetCount: number; durationSec: number }
@@ -17,6 +15,10 @@ export type BitrateResult =
  */
 export async function analyzeBitrate(filePath: string): Promise<BitrateResult> {
   bunLog("bitrate", `analyzing: ${filePath}`);
+  if (!FFPROBE) {
+    bunLog("bitrate", "ffprobe not found");
+    return { ok: false, reason: "ffprobe not found" };
+  }
   bunLog("bitrate", `ffprobe path: ${FFPROBE} (exists: ${existsSync(FFPROBE)})`);
 
   if (!existsSync(filePath)) {

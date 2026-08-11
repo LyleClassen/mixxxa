@@ -1,6 +1,10 @@
 import { analyzeBitrate } from "../src/bun/analysis/bitrate";
 
-const filePath = "F://Music//DJ//DnB//Culture Shock - Troglodyte (Original Mix).mp3";
+const filePath = process.argv[2];
+if (!filePath) {
+  console.error("Usage: bun scripts/bitrate-analysis.ts <path-to-audio-file>");
+  process.exit(1);
+}
 
 const result = await analyzeBitrate(filePath);
 

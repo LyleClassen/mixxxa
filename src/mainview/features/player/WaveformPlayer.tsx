@@ -62,7 +62,7 @@ export const WaveformPlayer = forwardRef<
   const [zoom, setZoom] = useState(loadSavedZoom);
   const [grid, setGrid] = useState<BeatGrid | null>(null);
   const [cues, setCues] = useState<CueMarker[]>([]);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function updateCues(next: CueMarker[]) {
     setCues(next);
@@ -165,7 +165,7 @@ export const WaveformPlayer = forwardRef<
     });
     instance.on("ready", (dur) => {
       setDuration(dur);
-      setError(false);
+      setError(null);
       centerScroll();
       // Persist freshly decoded peaks so the next load renders instantly.
       const trackId = loadedTrackIdRef.current;
@@ -182,7 +182,7 @@ export const WaveformPlayer = forwardRef<
         }
       }
     });
-    instance.on("error", () => setError(true));
+    instance.on("error", () => setError("Audio playback failed"));
 
     instance.setVolume(volume);
     setWs(instance);
@@ -206,13 +206,13 @@ export const WaveformPlayer = forwardRef<
       setCurrentTime(0);
       setDuration(0);
       setIsPlaying(false);
-      setError(false);
+      setError(null);
       setGrid(null);
       updateCues([]);
       return;
     }
 
-    setError(false);
+    setError(null);
     setCurrentTime(0);
     setDuration(0);
     setIsPlaying(false);
@@ -226,10 +226,10 @@ export const WaveformPlayer = forwardRef<
       electroview.rpc!.request.getWaveformData({ trackId }),
       electroview.rpc!.request.getTrackAudioUrl({ trackId }),
     ])
-      .then(([wf, url]) => {
+      .then(([wf, audio]) => {
         if (loadedTrackIdRef.current !== trackId) return; // stale — track switched
-        if (!url) {
-          setError(true);
+        if ("error" in audio) {
+          setError(audio.message);
           return;
         }
         hadCachedPeaksRef.current = !!wf?.peaks && wf.peaks.length > 0;
@@ -238,15 +238,15 @@ export const WaveformPlayer = forwardRef<
         }
         updateCues(wf?.cues ?? []);
         ws.load(
-          url,
+          audio.url,
           wf?.peaks && wf.peaks.length > 0 ? [wf.peaks] : undefined,
           wf?.duration ?? undefined,
         ).catch(() => {
-          if (loadedTrackIdRef.current === trackId) setError(true);
+          if (loadedTrackIdRef.current === trackId) setError("Audio file unavailable");
         });
       })
       .catch(() => {
-        if (loadedTrackIdRef.current === trackId) setError(true);
+        if (loadedTrackIdRef.current === trackId) setError("Audio file unavailable");
       });
   }, [ws, track?.id]);
 
@@ -278,7 +278,7 @@ export const WaveformPlayer = forwardRef<
         {/* Transport */}
         <button
           onClick={togglePlayPause}
-          disabled={!track || error}
+          disabled={!track || !!error}
           className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:scale-105 transition-transform shadow-lg shadow-primary/20 disabled:opacity-40 disabled:scale-100 shrink-0"
         >
           {isPlaying ? (
@@ -348,7 +348,7 @@ export const WaveformPlayer = forwardRef<
 
             {error && (
               <div className="absolute inset-0 flex items-center justify-center text-xs text-destructive bg-muted/30 rounded-lg">
-                Audio file unavailable
+                {error}
               </div>
             )}
             {!track && !error && (

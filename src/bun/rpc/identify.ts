@@ -14,6 +14,8 @@ import { readContainerDurationSec } from "../analysis/duration";
 import { lookupFingerprint } from "../lookup/acoustid";
 import { rankCandidates } from "../lookup/candidates";
 import { bunLog } from "../bunLog";
+import { resolveTrackFile } from "../paths/resolveTrackFile";
+import { trackFileErrorMessage } from "../../shared/trackPath";
 
 let dataDir: string;
 let sendProgress: ((p: IdentifyProgress) => void) | null = null;
@@ -32,12 +34,14 @@ export const identifyHandlers = {
     const db = getDb(dataDir);
     const inputs = readMetadataLookupInputs(db, trackId);
     if (!inputs) throw new Error("Track not found");
-    if (!inputs.filePath) throw new Error("Track has no audio file path");
+    const resolution = resolveTrackFile(db, inputs.filePath);
+    if (!resolution.ok) throw new Error(trackFileErrorMessage(resolution.reason, resolution.detail));
+    const resolvedPath = resolution.path;
 
     let fingerprint = inputs.fingerprint;
     if (!fingerprint) {
       sendProgress?.({ trackId, phase: "fingerprint" });
-      const decoded = await decodeAudio(inputs.filePath, 44100, 120);
+      const decoded = await decodeAudio(resolvedPath, 44100, 120);
       const computed = await computeFingerprint(decoded.buffer, decoded.sampleRate);
       writeFingerprint(db, trackId, computed.fingerprint, computed.ms);
       fingerprint = computed.fingerprint;
@@ -46,7 +50,7 @@ export const identifyHandlers = {
     let durationSec = inputs.waveformDuration;
     if (durationSec == null) {
       sendProgress?.({ trackId, phase: "duration" });
-      durationSec = await readContainerDurationSec(inputs.filePath);
+      durationSec = await readContainerDurationSec(resolvedPath);
     }
     if (durationSec == null) throw new Error("Could not determine the track's duration");
 

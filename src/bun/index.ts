@@ -8,11 +8,13 @@ import { initAnalysisHandlers } from "./rpc/analysis";
 import { initWaveformHandlers } from "./rpc/waveform";
 import { initCueHandlers, initCues } from "./rpc/cues";
 import { initIdentifyHandlers, initIdentify } from "./rpc/identify";
+import { initLibraryPathsHandlers } from "./rpc/libraryPaths";
 import { closeDb, getDb } from "./db/localDb";
 import { startAudioServer, stopAudioServer } from "./audioServer";
 import { initAnalysis } from "./analysis/index";
 import { loadSettings } from "./analysis/settings";
 import { initBunLog, bunLog } from "./bunLog";
+import { checkToolchain } from "./analysis/binaries";
 
 const DEV_SERVER_PORT = 5173;
 const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
@@ -39,15 +41,19 @@ initAnalysisHandlers(Utils.paths.userData);
 initWaveformHandlers(Utils.paths.userData);
 initCueHandlers(Utils.paths.userData);
 initIdentifyHandlers(Utils.paths.userData);
+initLibraryPathsHandlers(Utils.paths.userData);
 startAudioServer(Utils.paths.userData);
 
 const db = getDb(Utils.paths.userData);
 
 const settings = loadSettings(db);
-// logs/ at the project root (two levels up from src/bun/)
-const logsDir = join(import.meta.dir, "../..", "logs");
+// User-writable location — app bundles are read-only once signed/notarised.
+const logsDir = join(Utils.paths.userData, "logs");
 initBunLog(logsDir, settings.maxLogFiles);
 bunLog("BOOT", `mixxxa started — userData=${Utils.paths.userData} logsDir=${logsDir}`);
+
+const toolchain = checkToolchain();
+bunLog("BOOT", `toolchain — ffmpeg=${toolchain.ffmpeg ?? "NOT FOUND"} ffprobe=${toolchain.ffprobe ?? "NOT FOUND"}`);
 
 const rpc = BrowserView.defineRPC<MixxxRPC>({
 	maxRequestTime: Infinity,

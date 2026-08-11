@@ -1,8 +1,4 @@
-import ffmpegStatic from "ffmpeg-static";
-
-// ffmpeg-static provides the path to a bundled platform binary.
-// Fall back to system PATH if the package path is unavailable (e.g. stripped bundle).
-const FFMPEG: string = ffmpegStatic ?? "ffmpeg";
+import { FFMPEG } from "./binaries";
 
 export interface DecodedPcm {
   /** Mono float32 PCM at the requested sample rate */
@@ -21,6 +17,10 @@ export async function decodeAudio(
   sampleRate: 44100 | 16000 = 44100,
   maxSeconds?: number,
 ): Promise<DecodedPcm> {
+  if (!FFMPEG) {
+    throw new Error("ffmpeg not found — run `bun install` or install ffmpeg on PATH");
+  }
+
   const proc = Bun.spawn(
     [
       FFMPEG,

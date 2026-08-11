@@ -1,6 +1,7 @@
-import { existsSync } from "node:fs";
 import { getDb } from "./db/localDb";
 import { getPcmBuffer } from "./analysis/index";
+import { resolveTrackFile } from "./paths/resolveTrackFile";
+import { trackFileErrorMessage } from "../shared/trackPath";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -48,11 +49,25 @@ export function startAudioServer(dataDir: string): void {
         "SELECT file_path FROM content WHERE id = ?"
       ).get(contentId);
 
-      if (!row || !row.file_path || !existsSync(row.file_path)) {
-        return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
+      const resolution = resolveTrackFile(db, row?.file_path ?? null);
+      if (!resolution.ok) {
+        const message = trackFileErrorMessage(resolution.reason, resolution.detail);
+        return new Response(JSON.stringify({ error: resolution.reason, message }), {
+          status: 404,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
       }
 
-      const file = Bun.file(row.file_path);
+      const file = Bun.file(resolution.path);
+      // Re-check right before use: the drive can be unmounted between
+      // resolveTrackFile's existsSync and here, and Bun.file().size silently
+      // returns 0 for a missing file rather than throwing.
+      if (!(await file.exists())) {
+        return new Response(JSON.stringify({ error: "missing", message: trackFileErrorMessage("missing") }), {
+          status: 404,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        });
+      }
       const size = file.size;
       const contentType = file.type || "application/octet-stream";
 

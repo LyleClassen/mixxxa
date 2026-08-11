@@ -1,5 +1,6 @@
 import type { RPCSchema } from "electrobun/bun";
 import type { ReadinessTier } from "./systemReadiness";
+import type { TrackFileErrorReason } from "./trackPath";
 
 export type { ReadinessTier };
 
@@ -116,6 +117,31 @@ export interface BackupInfo {
 export interface RekordboxSyncSettings {
   maxBackups: number;
 }
+
+// ── Library path portability (volume remapping) ─────────────────────────────
+
+export interface VolumeMapping {
+  from: string; // e.g. "E:/Music" — as it appears in Rekordbox's stored path
+  to: string;   // e.g. "/Volumes/External/Music" — where it actually lives now
+}
+
+export interface LibraryPathSettings {
+  mappings: VolumeMapping[];
+}
+
+export type UnresolvedReason = "volume-offline" | "missing";
+
+export interface UnresolvedRoot {
+  root: string;
+  trackCount: number;
+  reason: UnresolvedReason;
+}
+
+// ── Missing/unavailable track file reporting ────────────────────────────────
+
+export type GetTrackAudioUrlResult =
+  | { url: string }
+  | { error: TrackFileErrorReason; message: string };
 
 // ── Waveform types ────────────────────────────────────────────────────────────
 
@@ -262,18 +288,28 @@ export interface IdentifyProgress {
   phase: "fingerprint" | "duration" | "lookup";
 }
 
+// ── Toolchain (ffmpeg/ffprobe) status ────────────────────────────────────────
+
+export interface ToolchainStatus {
+  ffmpeg: string | null;
+  ffprobe: string | null;
+  ok: boolean;
+}
+
 // ── RPC ───────────────────────────────────────────────────────────────────────
 
 export type MixxxRPC = {
   bun: RPCSchema<{
     requests: {
       openXmlFile: { params: undefined; response: string | null };
+      openFolder: { params: undefined; response: string | null };
+      getToolchainStatus: { params: undefined; response: ToolchainStatus };
       syncFromRekordbox: { params: undefined; response: PlaylistNode[] };
       getPlaylistTree: { params: undefined; response: PlaylistNode[] };
       getPlaylistTracks: { params: { playlistId: string }; response: Track[] };
       getAllTracks: { params: undefined; response: Track[] };
       reorderPlaylistTracks: { params: { playlistId: string; orderedTrackIds: string[] }; response: Track[] };
-      getTrackAudioUrl: { params: { trackId: string }; response: string | null };
+      getTrackAudioUrl: { params: { trackId: string }; response: GetTrackAudioUrlResult };
       // Waveform
       getWaveformData: { params: { trackId: string }; response: WaveformData | null };
       saveWaveformPeaks: { params: { trackId: string; peaks: number[]; duration: number }; response: void };
@@ -316,6 +352,10 @@ export type MixxxRPC = {
       identifyTrack: { params: { trackId: string }; response: IdentifyLookupResult };
       applyIdentifiedMetadata: { params: { trackId: string; candidate: IdentifyCandidate }; response: Track };
       discardIdentifiedMetadata: { params: { trackId: string }; response: Track };
+      // Library path portability — volume remapping
+      getLibraryPathSettings: { params: undefined; response: LibraryPathSettings };
+      setLibraryPathSettings: { params: Partial<LibraryPathSettings>; response: LibraryPathSettings };
+      getUnresolvedRoots: { params: undefined; response: UnresolvedRoot[] };
     };
     messages: {
       analysisQueueUpdate: { queue: QueueItem[] };

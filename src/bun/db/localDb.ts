@@ -10,6 +10,7 @@ let db: Database | null = null;
 
 const CONTENT_ANALYSIS_COLUMNS = [
   "file_path TEXT",
+  "path_kind TEXT",
   "album TEXT",
   "bit_rate INTEGER",
   "analyzed_bpm REAL",
@@ -44,7 +45,7 @@ const CONTENT_ANALYSIS_COLUMNS = [
 // deletes and re-imports every content row from Rekordbox, so these must be
 // snapshotted and restored or they'd be lost on each sync. Derived from
 // CONTENT_ANALYSIS_COLUMNS minus the few columns Rekordbox is authoritative for.
-const REKORDBOX_SOURCED_CONTENT_COLUMNS = new Set(["file_path", "album", "bit_rate"]);
+const REKORDBOX_SOURCED_CONTENT_COLUMNS = new Set(["file_path", "path_kind", "album", "bit_rate"]);
 const LOCAL_CONTENT_COLUMNS: string[] = CONTENT_ANALYSIS_COLUMNS
   .map((colDef) => colDef.split(" ")[0])
   .filter((name) => !REKORDBOX_SOURCED_CONTENT_COLUMNS.has(name));
@@ -295,7 +296,7 @@ export function readPlaylistTracks(database: Database, playlistId: string): Trac
     JOIN content c ON c.id = ps.content_id
     LEFT JOIN artist a ON a.id = c.artist_id
     LEFT JOIN key k ON k.id = c.key_id
-    WHERE ps.playlist_id = ?
+    WHERE ps.playlist_id = ? AND c.path_kind IS NOT 'streaming'
     ORDER BY ps.seq ASC
   `).all(playlistId);
   return rows.map(rowToTrack);
@@ -307,6 +308,7 @@ export function readAllTracks(database: Database): Track[] {
     FROM content c
     LEFT JOIN artist a ON a.id = c.artist_id
     LEFT JOIN key k ON k.id = c.key_id
+    WHERE c.path_kind IS NOT 'streaming'
     ORDER BY a.name ASC, c.title ASC
   `).all();
   return rows.map(rowToTrack);
@@ -747,7 +749,7 @@ export function pruneAnalysisHistory(database: Database): void {
 interface LibraryData {
   playlists: Array<{ id: string; name: string; attribute: number; parent_id: string | null; seq: number }>;
   playlistSongs: Array<{ id: string; playlist_id: string; content_id: string; seq: number }>;
-  contents: Array<{ id: string; title: string | null; artist_id: string | null; key_id: string | null; bpm: number | null; length: number | null; bit_rate: number | null; rating: number | null; file_path: string | null; album: string | null }>;
+  contents: Array<{ id: string; title: string | null; artist_id: string | null; key_id: string | null; bpm: number | null; length: number | null; bit_rate: number | null; rating: number | null; file_path: string | null; path_kind: string | null; album: string | null }>;
   artists: Array<{ id: string; name: string }>;
   keys: Array<{ id: string; name: string }>;
   cues: Array<{ id: string; content_id: string; position_sec: number; end_sec: number | null; kind: number; color: string | null; comment: string | null }>;
@@ -791,10 +793,10 @@ export function replaceLibrary(database: Database, data: LibraryData): void {
     }
 
     const insertContent = database.prepare(
-      "INSERT INTO content (id, title, artist_id, key_id, bpm, length, bit_rate, rating, file_path, album) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO content (id, title, artist_id, key_id, bpm, length, bit_rate, rating, file_path, path_kind, album) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     for (const c of data.contents) {
-      insertContent.run(c.id, c.title, c.artist_id, c.key_id, c.bpm, c.length, c.bit_rate, c.rating, c.file_path, c.album);
+      insertContent.run(c.id, c.title, c.artist_id, c.key_id, c.bpm, c.length, c.bit_rate, c.rating, c.file_path, c.path_kind, c.album);
     }
 
     // Re-apply preserved local analysis data to tracks that still exist. Rows

@@ -5,6 +5,9 @@ import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks, readAllTra
 import { getAudioServerPort } from "../audioServer";
 import { CUE_COLOR_TABLE } from "../../shared/cueColors";
 import { getDefaultMasterDbPath, makeSyncError } from "./rekordboxShared";
+import { classifyRekordboxPath, trackFileErrorMessage } from "../../shared/trackPath";
+import { resolveTrackFile } from "../paths/resolveTrackFile";
+import type { GetTrackAudioUrlResult } from "../../shared/types";
 
 let dataDir: string;
 
@@ -143,6 +146,7 @@ export const rekordboxHandlers = {
         bit_rate: c.bitRate ?? null,
         rating: c.rating ?? null,
         file_path: c.folderPath ?? null,
+        path_kind: classifyRekordboxPath(c.folderPath ?? null).kind,
         album: c.albumId ? (albumMap.get(c.albumId) ?? null) : null,
       })),
       artists: artists.map((a) => ({ id: a.id, name: a.name })),
@@ -174,12 +178,15 @@ export const rekordboxHandlers = {
     return readPlaylistTracks(db, playlistId);
   },
 
-  getTrackAudioUrl: async ({ trackId }: { trackId: string }): Promise<string | null> => {
+  getTrackAudioUrl: async ({ trackId }: { trackId: string }): Promise<GetTrackAudioUrlResult> => {
     const db = getDb(dataDir);
     const row = db.query<{ file_path: string | null }, [string]>(
       "SELECT file_path FROM content WHERE id = ?"
     ).get(trackId);
-    if (!row || !row.file_path || !existsSync(row.file_path)) return null;
-    return `http://127.0.0.1:${getAudioServerPort()}/audio/${trackId}`;
+    const resolution = resolveTrackFile(db, row?.file_path ?? null);
+    if (!resolution.ok) {
+      return { error: resolution.reason, message: trackFileErrorMessage(resolution.reason, resolution.detail) };
+    }
+    return { url: `http://127.0.0.1:${getAudioServerPort()}/audio/${trackId}` };
   },
 };

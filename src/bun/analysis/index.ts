@@ -27,6 +27,8 @@ import {
 } from "../db/localDb";
 import { getAudioServerPort } from "../audioServer";
 import { bunLog } from "../bunLog";
+import { resolveTrackFile } from "../paths/resolveTrackFile";
+import { trackFileErrorMessage } from "../../shared/trackPath";
 
 // PCM blobs stored in memory, keyed by itemId, freed after claim is fulfilled
 const pcmCache = new Map<string, ArrayBuffer>();
@@ -184,19 +186,23 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
   store.setStatus(row.id, "running");
   schedulePush(store);
 
-  // Look up file path
+  // Look up + resolve the file path — catches streaming tracks, offline
+  // drives, and moved/deleted files before spawning any decode work.
   const fileRow = db.query<{ file_path: string | null }, [string]>(
     "SELECT file_path FROM content WHERE id = ?"
   ).get(row.track_id);
 
-  if (!fileRow?.file_path) {
-    bunLog("ANALYSIS", `claim failed: no file path for track ${row.track_id}`);
-    store.setStatus(row.id, "failed", "Track file path not found");
+  const resolution = resolveTrackFile(db, fileRow?.file_path ?? null);
+  if (!resolution.ok) {
+    const message = trackFileErrorMessage(resolution.reason, resolution.detail);
+    bunLog("ANALYSIS", `claim failed for track ${row.track_id}: ${message}`);
+    store.setStatus(row.id, "failed", message);
     schedulePush(store);
     return null;
   }
+  const resolvedPath = resolution.path;
 
-  const trackName = basename(fileRow.file_path);
+  const trackName = basename(resolvedPath);
   bunLog("ANALYSIS", `claim: ${trackName} aspects=[${allAspects.join(",")}]`);
 
   const settings = loadSettings(db);
@@ -209,7 +215,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
     schedulePush(store);
 
     const t0 = Date.now();
-    const result = await analyzeBitrate(fileRow.file_path);
+    const result = await analyzeBitrate(resolvedPath);
     timeBitrateMs = Date.now() - t0;
 
     if (result.ok) {
@@ -247,7 +253,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
 
     // Fingerprint Bun-side (orbit has no Bun-side PCM otherwise) — non-fatal
     try {
-      const fpDecoded = await decodeAudio(fileRow.file_path, 44100, 120);
+      const fpDecoded = await decodeAudio(resolvedPath, 44100, 120);
       await fingerprintAndStore(db, row.track_id, trackName, fpDecoded.buffer, fpDecoded.sampleRate);
     } catch (err) {
       bunLog("ANALYSIS", `fingerprint decode error: ${trackName} — ${err}`);
@@ -255,7 +261,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
 
     const t0 = Date.now();
     try {
-      const orbitResult = await analyzeOrbit(fileRow.file_path, 600, (_step, pct) => {
+      const orbitResult = await analyzeOrbit(resolvedPath, 600, (_step, pct) => {
         if (canceledItems.has(row.id)) return;
         store.setPhaseProgress(row.id, "orbit", pct);
         schedulePush(store);
@@ -343,7 +349,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
 
   try {
     const t0 = Date.now();
-    const decoded = await decodeAudio(fileRow.file_path, 44100);
+    const decoded = await decodeAudio(resolvedPath, 44100);
     bunLog("ANALYSIS", `decode: ${trackName} (${Date.now() - t0}ms)`);
     pcmCache.set(row.id, decoded.buffer);
     await fingerprintAndStore(db, row.track_id, trackName, decoded.buffer, decoded.sampleRate);
@@ -358,7 +364,7 @@ export async function claimWork(db: Database): Promise<ClaimResponse | null> {
   return {
     itemId: row.id,
     trackId: row.track_id,
-    filePath: fileRow.file_path,
+    filePath: resolvedPath,
     pcmUrl: `http://127.0.0.1:${port}/pcm/${row.id}`,
     aspects: rendererAspects,
   };

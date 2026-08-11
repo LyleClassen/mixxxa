@@ -1,8 +1,6 @@
-import ffprobeStatic from "ffprobe-static";
 import { existsSync } from "node:fs";
 import { bunLog } from "../bunLog";
-
-const FFPROBE: string = ffprobeStatic.path ?? "ffprobe";
+import { FFPROBE } from "./binaries";
 
 /**
  * Read a file's audio stream duration from its container header via ffprobe —
@@ -11,6 +9,10 @@ const FFPROBE: string = ffprobeStatic.path ?? "ffprobe";
  */
 export async function readContainerDurationSec(filePath: string): Promise<number | null> {
   if (!existsSync(filePath)) return null;
+  if (!FFPROBE) {
+    bunLog("duration", "ffprobe not found");
+    return null;
+  }
 
   const proc = Bun.spawn(
     [

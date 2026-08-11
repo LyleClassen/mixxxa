@@ -18,6 +18,8 @@ import { planAutoCues } from "../cues/autoCue";
 import { detectDrops } from "../analysis/sidecar";
 import { slotColor } from "../../shared/cueColors";
 import { bunLog } from "../bunLog";
+import { resolveTrackFile } from "../paths/resolveTrackFile";
+import { trackFileErrorMessage } from "../../shared/trackPath";
 
 let dataDir: string;
 let sendProgress: ((p: AutoCueProgress) => void) | null = null;
@@ -52,21 +54,23 @@ export const cuesHandlers = {
     >(
       "SELECT file_path, bpm, analyzed_bpm, analyzed_first_beat_sec, waveform_duration FROM content WHERE id = ?"
     ).get(trackId);
-    if (!row?.file_path) throw new Error("Track has no audio file path");
+    const resolution = resolveTrackFile(db, row?.file_path ?? null);
+    if (!resolution.ok) throw new Error(trackFileErrorMessage(resolution.reason, resolution.detail));
+    const content = row!;
 
     const settings = loadAutoCueSettings(db);
-    const needBpm = row.analyzed_bpm == null || row.analyzed_first_beat_sec == null;
+    const needBpm = content.analyzed_bpm == null || content.analyzed_first_beat_sec == null;
 
     const result = await detectDrops(
-      row.file_path,
+      resolution.path,
       { threshold: settings.confidenceThreshold, needBpm },
       (step, pct) => sendProgress?.({ trackId, step, pct }),
     );
 
     // BPM fallback chain: analyzed → sidecar-computed → Rekordbox bpm (no
     // beatgrid, assume first beat at 0) → error.
-    let bpm = row.analyzed_bpm;
-    let firstBeatSec = row.analyzed_first_beat_sec;
+    let bpm = content.analyzed_bpm;
+    let firstBeatSec = content.analyzed_first_beat_sec;
     let computedBpm: number | undefined;
     if (bpm == null || firstBeatSec == null) {
       if (result.bpm != null && result.bpm > 0) {
@@ -79,15 +83,15 @@ export const cuesHandlers = {
           "UPDATE content SET analyzed_bpm = COALESCE(analyzed_bpm, ?), analyzed_first_beat_sec = COALESCE(analyzed_first_beat_sec, ?) WHERE id = ?",
           [result.bpm, result.firstBeatSec ?? 0, trackId],
         );
-      } else if (row.bpm != null && row.bpm > 0) {
-        bpm = bpm ?? row.bpm / 100;
+      } else if (content.bpm != null && content.bpm > 0) {
+        bpm = bpm ?? content.bpm / 100;
         firstBeatSec = firstBeatSec ?? 0;
       } else {
         throw new Error("No BPM available for this track — analyze it first");
       }
     }
 
-    const durationSec = result.duration ?? row.waveform_duration ?? undefined;
+    const durationSec = result.duration ?? content.waveform_duration ?? undefined;
     const planned = planAutoCues(result.drops, bpm, firstBeatSec, settings, durationSec);
     bunLog("CUES", `autoCue ${trackId}: ${result.drops.length} drops → ${planned.length} cues (bpm=${bpm.toFixed(1)})`);
 

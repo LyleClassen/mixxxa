@@ -40,6 +40,8 @@
     },
   },
   "trustedDependencies": [
+    "ffmpeg-static",
+    "ffprobe-static",
     "webgpu",
   ],
   "patchedDependencies": {

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS content (
   length INTEGER,
   rating INTEGER,
   file_path TEXT,
+  path_kind TEXT,
   album TEXT,
   bit_rate INTEGER,
   analyzed_bpm REAL,

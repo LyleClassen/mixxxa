@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings, CueMarker, AutoCueProgress, IdentifyProgress } from "../shared/types";
+import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings, CueMarker, AutoCueProgress, IdentifyProgress, ToolchainStatus } from "../shared/types";
 import type { ReadinessTier } from "../shared/systemReadiness";
 import { electroview } from "./rpc";
 import { WaveformPlayer, type WaveformPlayerHandle } from "./features/player/WaveformPlayer";
@@ -78,6 +78,8 @@ function App() {
   });
   const [isPaused, setIsPaused] = useState(false);
   const workerPoolInitialized = useRef(false);
+  const [toolchainStatus, setToolchainStatus] = useState<ToolchainStatus | null>(null);
+  const [toolchainBannerDismissed, setToolchainBannerDismissed] = useState(false);
 
   const debouncedSearch = useDebounce(searchQuery, 200);
 
@@ -106,6 +108,12 @@ function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [loadedTrack]);
+
+  // ── Toolchain (ffmpeg/ffprobe) health check ─────────────────────────────────
+
+  useEffect(() => {
+    electroview.rpc!.request.getToolchainStatus().then(setToolchainStatus).catch(() => {});
+  }, []);
 
   // ── Initialize analysis worker pool + settings ──────────────────────────────
 
@@ -483,6 +491,24 @@ function App() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
+
+        {toolchainStatus && !toolchainStatus.ok && !toolchainBannerDismissed && (
+          <div className="flex items-center justify-between gap-4 px-6 py-2 bg-destructive/15 border-b border-destructive/40 text-sm text-destructive shrink-0">
+            <span>
+              {toolchainStatus.ffmpeg == null && toolchainStatus.ffprobe == null
+                ? "ffmpeg and ffprobe were not found — analysis and playback will fail. Run `bun install`, or install ffmpeg on your PATH."
+                : toolchainStatus.ffmpeg == null
+                ? "ffmpeg was not found — analysis will fail. Run `bun install`, or install ffmpeg on your PATH."
+                : "ffprobe was not found — bitrate/duration analysis will fail. Run `bun install`, or install ffprobe on your PATH."}
+            </span>
+            <button
+              onClick={() => setToolchainBannerDismissed(true)}
+              className="text-destructive/70 hover:text-destructive shrink-0 text-lg leading-none"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Header Tabs */}
         <header className="h-16 flex items-center justify-between border-b border-border px-6 bg-card shrink-0">

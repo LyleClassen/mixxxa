@@ -5,6 +5,7 @@ import { analysisHandlers } from "./analysis";
 import { waveformHandlers } from "./waveform";
 import { cuesHandlers } from "./cues";
 import { identifyHandlers } from "./identify";
+import { libraryPathsHandlers } from "./libraryPaths";
 
 export const rpcHandlers = {
   requests: {
@@ -15,6 +16,7 @@ export const rpcHandlers = {
     ...waveformHandlers,
     ...cuesHandlers,
     ...identifyHandlers,
+    ...libraryPathsHandlers,
   },
   messages: {},
 };

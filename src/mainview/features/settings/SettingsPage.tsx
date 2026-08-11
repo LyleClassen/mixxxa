@@ -6,6 +6,7 @@ import type {
   KeyNotation,
   BackupInfo,
   SyncErrorKind,
+  UnresolvedRoot,
 } from "../../../shared/types";
 import { electroview } from "../../rpc";
 
@@ -216,7 +217,95 @@ export function SettingsPage({ settings, onChange, onResync }: SettingsPageProps
         </div>
       </div>
 
+      <MusicLibrarySection onResync={onResync} />
+
       <RekordboxBackupsSection onResync={onResync} />
+    </div>
+  );
+}
+
+// ── Music Library — volume remapping ────────────────────────────────────────
+
+function unresolvedRootMessage(root: UnresolvedRoot): string {
+  return root.reason === "volume-offline"
+    ? `Drive not connected`
+    : `Files missing under this location`;
+}
+
+function MusicLibrarySection({ onResync }: { onResync: () => Promise<void> }) {
+  const [roots, setRoots] = useState<UnresolvedRoot[]>([]);
+  const [locating, setLocating] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+
+  const loadRoots = useCallback(() => {
+    electroview.rpc!.request.getUnresolvedRoots().then(setRoots).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadRoots();
+  }, [loadRoots]);
+
+  async function handleLocate(root: string) {
+    setLocating(root);
+    setMessage(null);
+    try {
+      const folder = await electroview.rpc!.request.openFolder();
+      if (!folder) return;
+      const current = await electroview.rpc!.request.getLibraryPathSettings();
+      const mappings = [
+        ...current.mappings.filter((m) => m.from !== root),
+        { from: root, to: folder },
+      ];
+      await electroview.rpc!.request.setLibraryPathSettings({ mappings });
+      setMessage({ kind: "success", text: `Mapped “${root}” → “${folder}”.` });
+      loadRoots();
+      await onResync();
+    } catch {
+      setMessage({ kind: "error", text: "Could not save the mapping. Please try again." });
+    } finally {
+      setLocating(null);
+    }
+  }
+
+  return (
+    <div className="space-y-3 border-t border-border pt-8">
+      <div>
+        <h2 className="text-lg font-semibold mb-1">Music Library</h2>
+        <p className="text-sm text-muted-foreground">
+          Drives and folders Mixxxa can't currently find. This happens when a library authored on
+          another machine (or another OS) hasn't been remapped to where the files live here.
+        </p>
+      </div>
+
+      {message && (
+        <p className={`text-xs ${message.kind === "success" ? "text-primary" : "text-destructive"}`}>
+          {message.text}
+        </p>
+      )}
+
+      {roots.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-4">All tracks resolve to a file on disk.</p>
+      ) : (
+        <div className="space-y-2">
+          {roots.map((r) => (
+            <div key={r.root} className="flex items-center justify-between gap-2 p-3 rounded-md border border-border">
+              <div className="min-w-0">
+                <div className="text-sm font-medium font-mono truncate">{r.root}</div>
+                <div className="text-xs text-muted-foreground">
+                  {r.trackCount} track{r.trackCount === 1 ? "" : "s"} · {unresolvedRootMessage(r)}
+                </div>
+              </div>
+              <button
+                onClick={() => handleLocate(r.root)}
+                disabled={locating === r.root}
+                className="text-xs font-bold px-3 py-1 rounded-md border border-border hover:bg-muted/50 transition-colors shrink-0 disabled:opacity-50"
+              >
+                {locating === r.root ? "Locating…" : "Locate…"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
