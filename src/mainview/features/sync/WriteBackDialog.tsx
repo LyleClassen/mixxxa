@@ -48,7 +48,7 @@ export function WriteBackDialog({ open, onOpenChange, onWritten }: WriteBackDial
   const [phase, setPhase] = useState<Phase>("loading");
   const [diff, setDiff] = useState<RekordboxDiff | null>(null);
   const [errorKind, setErrorKind] = useState<SyncErrorKind | null>(null);
-  const [aspects, setAspects] = useState<WriteBackAspects>({ ordering: true, bpm: true, key: true, metadata: true });
+  const [aspects, setAspects] = useState<WriteBackAspects>({ ordering: true, removals: true, bpm: true, key: true, metadata: true });
   const [progress, setProgress] = useState<WriteBackProgress | null>(null);
   const [summary, setSummary] = useState<WriteBackSummary | null>(null);
 
@@ -57,7 +57,9 @@ export function WriteBackDialog({ open, onOpenChange, onWritten }: WriteBackDial
   const metadataChanges = diff?.trackChanges.filter(
     (c) => c.field === "artist" || c.field === "title" || c.field === "album",
   ) ?? [];
+  const removalCount = diff?.removals.reduce((sum, pl) => sum + pl.removedTracks.length, 0) ?? 0;
   const hasOrdering = (diff?.playlists.length ?? 0) > 0;
+  const hasRemovals = removalCount > 0;
   const hasBpm = bpmChanges.length > 0;
   const hasKey = keyChanges.length > 0;
   const hasMetadata = metadataChanges.length > 0;
@@ -71,13 +73,13 @@ export function WriteBackDialog({ open, onOpenChange, onWritten }: WriteBackDial
     setErrorKind(null);
     setProgress(null);
     setSummary(null);
-    setAspects({ ordering: true, bpm: true, key: true, metadata: true });
+    setAspects({ ordering: true, removals: true, bpm: true, key: true, metadata: true });
 
     electroview.rpc!.request.diffRekordbox()
       .then((result) => {
         if (cancelled) return;
         setDiff(result);
-        const empty = result.playlists.length === 0 && result.trackChanges.length === 0;
+        const empty = result.playlists.length === 0 && result.removals.length === 0 && result.trackChanges.length === 0;
         setPhase(empty ? "nothing" : "review");
       })
       .catch((err: unknown) => {
@@ -124,6 +126,7 @@ export function WriteBackDialog({ open, onOpenChange, onWritten }: WriteBackDial
 
   const nothingSelected =
     (!hasOrdering || !aspects.ordering) &&
+    (!hasRemovals || !aspects.removals) &&
     (!hasBpm || !aspects.bpm) &&
     (!hasKey || !aspects.key) &&
     (!hasMetadata || !aspects.metadata);
@@ -171,6 +174,24 @@ export function WriteBackDialog({ open, onOpenChange, onWritten }: WriteBackDial
                     <span className="shrink-0 ml-2">{pl.changedCount} moved</span>
                   </div>
                 ))}
+              </AspectSection>
+            )}
+
+            {hasRemovals && (
+              <AspectSection
+                label="Removed from playlist"
+                count={removalCount}
+                checked={aspects.removals}
+                onToggle={() => toggle("removals")}
+              >
+                {diff.removals.flatMap((pl) =>
+                  pl.removedTracks.map((t) => (
+                    <div key={`${pl.playlistId}-${t.trackId}`} className="flex justify-between text-xs text-muted-foreground gap-2">
+                      <span className="truncate">{t.title}</span>
+                      <span className="shrink-0 ml-2 truncate">{pl.name}</span>
+                    </div>
+                  )),
+                )}
               </AspectSection>
             )}
 
@@ -233,6 +254,7 @@ export function WriteBackDialog({ open, onOpenChange, onWritten }: WriteBackDial
             <p className="font-medium">Write-back complete.</p>
             <ul className="text-muted-foreground text-xs list-disc pl-5">
               <li>{summary.playlistsReordered} playlist(s) reordered</li>
+              <li>{summary.tracksRemoved} track(s) removed from playlists</li>
               <li>{summary.bpmUpdated} BPM value(s) updated</li>
               <li>{summary.keysUpdated} key(s) updated</li>
               <li>{summary.metadataUpdated} metadata field(s) updated</li>

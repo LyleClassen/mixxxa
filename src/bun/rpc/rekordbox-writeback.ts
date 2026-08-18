@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import type {
   RekordboxDiff,
   PlaylistReorderDiff,
+  PlaylistRemovalDiff,
   TrackValueChange,
   WriteBackAspects,
   WriteBackSummary,
@@ -76,9 +77,14 @@ function openRekordbox(): MasterDb {
 
 function computeDiff(rbDb: MasterDb): RekordboxDiff {
   const db = getDb(dataDir);
+  const liveById = new Map(rbDb.getContents().map((c) => [c.id, c]));
 
-  // ── Playlist ordering ──────────────────────────────────────────────────────
+  // ── Playlist ordering + local-only removals ─────────────────────────────────
+  // The local mirror never gains tracks Rekordbox doesn't have — only Remove
+  // (ticket #8) can shrink it — so a track-set mismatch always means "removed
+  // locally, not yet synced," never "added locally."
   const playlists: PlaylistReorderDiff[] = [];
+  const removals: PlaylistRemovalDiff[] = [];
   for (const pl of readNonFolderPlaylists(db)) {
     const localOrder = readLocalPlaylistOrder(db, pl.id);
     let liveOrder: string[];
@@ -90,10 +96,19 @@ function computeDiff(rbDb: MasterDb): RekordboxDiff {
     } catch {
       continue; // playlist failed to load live — skip
     }
-    // Only meaningful when the two sides hold the same set of tracks.
-    if (localOrder.length !== liveOrder.length) continue;
-    const sameSet = new Set(liveOrder);
-    if (!localOrder.every((id) => sameSet.has(id))) continue;
+
+    if (localOrder.length !== liveOrder.length) {
+      const localSet = new Set(localOrder);
+      const removedTracks = liveOrder
+        .filter((id) => !localSet.has(id))
+        .map((id) => ({ trackId: id, title: liveById.get(id)?.title ?? "—" }));
+      if (removedTracks.length > 0) {
+        removals.push({ playlistId: pl.id, name: pl.name, removedTracks });
+      }
+      // Ordering is ambiguous until the removal syncs (or the removed ids are
+      // filtered out below) — skip it for this playlist in this diff cycle.
+      continue;
+    }
 
     let changedCount = 0;
     for (let i = 0; i < localOrder.length; i++) {
@@ -108,7 +123,6 @@ function computeDiff(rbDb: MasterDb): RekordboxDiff {
   const keyNameById = new Map(rbDb.getKeys().map((k) => [k.id, k.name]));
   const artistNameById = new Map(rbDb.getArtists().map((a) => [a.id, a.name]));
   const albumNameById = new Map(rbDb.getAlbums().map((a) => [a.id, a.name]));
-  const liveById = new Map(rbDb.getContents().map((c) => [c.id, c]));
 
   const trackChanges: TrackValueChange[] = [];
   for (const track of readAnalyzedTracks(db)) {
@@ -187,7 +201,7 @@ function computeDiff(rbDb: MasterDb): RekordboxDiff {
     }
   }
 
-  return { playlists, trackChanges, localUsn: rbDb.getLocalUsn() };
+  return { playlists, removals, trackChanges, localUsn: rbDb.getLocalUsn() };
 }
 
 export const writeBackHandlers = {
@@ -223,6 +237,7 @@ export const writeBackHandlers = {
     }
 
     const playlists = selectedAspects.ordering ? confirmedDiff.playlists : [];
+    const removals = selectedAspects.removals ? confirmedDiff.removals : [];
     const bpmChanges = selectedAspects.bpm
       ? confirmedDiff.trackChanges.filter((c) => c.field === "bpm")
       : [];
@@ -233,9 +248,10 @@ export const writeBackHandlers = {
       ? confirmedDiff.trackChanges.filter((c) => c.field === "artist" || c.field === "title" || c.field === "album")
       : [];
 
-    const total = playlists.length + bpmChanges.length + keyChanges.length + metadataChanges.length;
+    const removalCount = removals.reduce((sum, pl) => sum + pl.removedTracks.length, 0);
+    const total = playlists.length + removalCount + bpmChanges.length + keyChanges.length + metadataChanges.length;
     if (total === 0) {
-      return { playlistsReordered: 0, bpmUpdated: 0, keysUpdated: 0, metadataUpdated: 0 };
+      return { playlistsReordered: 0, tracksRemoved: 0, bpmUpdated: 0, keysUpdated: 0, metadataUpdated: 0 };
     }
 
     // Show the bar immediately and yield once so the IPC message flushes before
@@ -248,7 +264,7 @@ export const writeBackHandlers = {
     createBackup(getDefaultMasterDbPath(), backupsDir, "prewrite");
     pruneBackups(backupsDir, loadRekordboxSettings(getDb(dataDir)).maxBackups);
 
-    const summary: WriteBackSummary = { playlistsReordered: 0, bpmUpdated: 0, keysUpdated: 0, metadataUpdated: 0 };
+    const summary: WriteBackSummary = { playlistsReordered: 0, tracksRemoved: 0, bpmUpdated: 0, keysUpdated: 0, metadataUpdated: 0 };
     let current = 0;
 
     try {
@@ -266,6 +282,22 @@ export const writeBackHandlers = {
         current++;
         sendProgress?.({ phase: "ordering", current, total, label: `Reordered ${pl.name}` });
         await new Promise((r) => setTimeout(r, 0));
+      }
+
+      // ── Track removals ─────────────────────────────────────────────────────
+      for (const pl of removals) {
+        const songs = rbDb.getPlaylistSongs(pl.playlistId);
+        const songIdByContent = new Map(songs.map((s) => [s.contentId, s.id]));
+        for (const removedTrack of pl.removedTracks) {
+          const songId = songIdByContent.get(removedTrack.trackId);
+          if (songId) {
+            rbDb.deletePlaylistSong(songId);
+            summary.tracksRemoved++;
+          }
+          current++;
+          sendProgress?.({ phase: "removals", current, total, label: `Removed ${removedTrack.title} · ${pl.name}` });
+          await new Promise((r) => setTimeout(r, 0));
+        }
       }
 
       // ── BPM ─────────────────────────────────────────────────────────────────
@@ -328,7 +360,7 @@ export const writeBackHandlers = {
 
     bunLog(
       "WRITEBACK",
-      `wrote ${summary.playlistsReordered} playlists, ${summary.bpmUpdated} BPM, ${summary.keysUpdated} keys, ${summary.metadataUpdated} metadata`,
+      `wrote ${summary.playlistsReordered} playlists, ${summary.tracksRemoved} removals, ${summary.bpmUpdated} BPM, ${summary.keysUpdated} keys, ${summary.metadataUpdated} metadata`,
     );
     return summary;
   },

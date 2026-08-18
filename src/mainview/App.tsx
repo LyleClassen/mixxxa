@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings, CueMarker, AutoCueProgress, IdentifyProgress, ToolchainStatus } from "../shared/types";
+import type { PlaylistNode, Track, SyncErrorKind, QueueItem, HistoryEntry, AnalysisSettings, CueMarker, AutoCueProgress, IdentifyProgress, ToolchainStatus, RemovedPlaylistRow } from "../shared/types";
 import type { ReadinessTier } from "../shared/systemReadiness";
 import { electroview } from "./rpc";
 import { WaveformPlayer, type WaveformPlayerHandle } from "./features/player/WaveformPlayer";
@@ -7,6 +7,7 @@ import { HotCueGrid } from "./features/player/HotCueGrid";
 import { AutoCueModal } from "./features/player/AutoCueModal";
 import { IdentifyTrackModal } from "./features/identify/IdentifyTrackModal";
 import { TrackTable } from "./features/track-table";
+import { RemoveUndoToast } from "./features/track-table/RemoveUndoToast";
 import { AnalysisPanel } from "./features/analysis/AnalysisPanel";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { PlaylistTreeNode } from "./features/sidebar/PlaylistTreeNode";
@@ -296,13 +297,19 @@ function App() {
     }
   }, [selectedPlaylistId]);
 
+  // Undo affordance for the most recent removal — the local delete is
+  // otherwise unrecoverable until the next Rekordbox pull sync silently
+  // overwrites it, so this is the only real chance to reverse it.
+  const [removalUndo, setRemovalUndo] = useState<{ playlistId: string; removed: RemovedPlaylistRow[] } | null>(null);
+
   // Optimistically drop the tracks from local state, then write through the
   // RPC; on failure, reload the authoritative playlist contents.
   const handleRemoveFromPlaylist = useCallback(async (playlistId: string, trackIds: string[]) => {
     const idSet = new Set(trackIds);
     setTracks((prev) => prev.filter((t) => !idSet.has(t.id)));
     try {
-      await electroview.rpc!.request.removeTracksFromPlaylist({ playlistId, trackIds });
+      const { removed } = await electroview.rpc!.request.removeTracksFromPlaylist({ playlistId, trackIds });
+      setRemovalUndo({ playlistId, removed });
     } catch {
       try {
         const fresh = await electroview.rpc!.request.getPlaylistTracks({ playlistId });
@@ -310,6 +317,16 @@ function App() {
       } catch {}
     }
   }, []);
+
+  const handleUndoRemoveFromPlaylist = useCallback(async () => {
+    if (!removalUndo) return;
+    const { playlistId, removed } = removalUndo;
+    setRemovalUndo(null);
+    try {
+      const fresh = await electroview.rpc!.request.undoRemoveFromPlaylist({ playlistId, removed });
+      if (selectedPlaylistId === playlistId) setTracks(fresh);
+    } catch {}
+  }, [removalUndo, selectedPlaylistId]);
 
   const handleSetReadinessOverride = useCallback(async (trackId: string, tier: ReadinessTier | null) => {
     const updated = await electroview.rpc!.request.setReadinessOverride({ trackId, tier });
@@ -783,6 +800,14 @@ function App() {
         onOpenChange={setWriteBackOpen}
         onWritten={handleSync}
       />
+
+      {removalUndo && (
+        <RemoveUndoToast
+          count={removalUndo.removed.length}
+          onUndo={handleUndoRemoveFromPlaylist}
+          onDismiss={() => setRemovalUndo(null)}
+        />
+      )}
     </div>
   );
 }

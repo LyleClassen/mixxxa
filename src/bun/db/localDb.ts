@@ -333,19 +333,51 @@ export function reorderPlaylistTracks(
   tx();
 }
 
+export interface RemovedPlaylistSong {
+  id: string;
+  contentId: string;
+  seq: number;
+}
+
 // Remove tracks from a playlist. Leaves the seq values of the remaining rows
 // untouched — readPlaylistTracks/reorderPlaylistTracks only rely on relative
-// ASC order, which gaps don't disturb.
+// ASC order, which gaps don't disturb. Returns the removed rows (id/seq
+// preserved) so the caller can offer an exact undo.
 export function removeTracksFromPlaylist(
   database: Database,
   playlistId: string,
   trackIds: string[],
-): void {
+): RemovedPlaylistSong[] {
+  const select = database.prepare<{ id: string; content_id: string; seq: number }, [string, string]>(
+    "SELECT id, content_id, seq FROM playlist_song WHERE playlist_id = ? AND content_id = ?",
+  );
   const del = database.prepare(
     "DELETE FROM playlist_song WHERE playlist_id = ? AND content_id = ?",
   );
+  const removed: RemovedPlaylistSong[] = [];
   const tx = database.transaction(() => {
-    for (const trackId of trackIds) del.run(playlistId, trackId);
+    for (const trackId of trackIds) {
+      const row = select.get(playlistId, trackId);
+      if (row) removed.push({ id: row.id, contentId: row.content_id, seq: row.seq });
+      del.run(playlistId, trackId);
+    }
+  });
+  tx();
+  return removed;
+}
+
+// Re-insert previously-removed playlist_song rows verbatim (same id/seq),
+// undoing a removeTracksFromPlaylist call before it's been synced elsewhere.
+export function restorePlaylistTracks(
+  database: Database,
+  playlistId: string,
+  rows: RemovedPlaylistSong[],
+): void {
+  const insert = database.prepare(
+    "INSERT OR IGNORE INTO playlist_song (id, playlist_id, content_id, seq) VALUES (?, ?, ?, ?)",
+  );
+  const tx = database.transaction(() => {
+    for (const row of rows) insert.run(row.id, playlistId, row.contentId, row.seq);
   });
   tx();
 }

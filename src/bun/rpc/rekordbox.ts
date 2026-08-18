@@ -1,7 +1,8 @@
 import { MasterDb, isRekordboxRunning } from "rbox-js";
 import { existsSync } from "node:fs";
 import type { PlaylistNode, Track } from "../../shared/types";
-import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks, readAllTracks, reorderPlaylistTracks, removeTracksFromPlaylist } from "../db/localDb";
+import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks, readAllTracks, reorderPlaylistTracks, removeTracksFromPlaylist, restorePlaylistTracks } from "../db/localDb";
+import type { RemoveFromPlaylistResult, RemovedPlaylistRow } from "../../shared/types";
 import { getAudioServerPort } from "../audioServer";
 import { CUE_COLOR_TABLE } from "../../shared/cueColors";
 import { getDefaultMasterDbPath, makeSyncError } from "./rekordboxShared";
@@ -178,9 +179,15 @@ export const rekordboxHandlers = {
     return readPlaylistTracks(db, playlistId);
   },
 
-  removeTracksFromPlaylist: async ({ playlistId, trackIds }: { playlistId: string; trackIds: string[] }): Promise<Track[]> => {
+  removeTracksFromPlaylist: async ({ playlistId, trackIds }: { playlistId: string; trackIds: string[] }): Promise<RemoveFromPlaylistResult> => {
     const db = getDb(dataDir);
-    removeTracksFromPlaylist(db, playlistId, trackIds);
+    const removed = removeTracksFromPlaylist(db, playlistId, trackIds);
+    return { tracks: readPlaylistTracks(db, playlistId), removed };
+  },
+
+  undoRemoveFromPlaylist: async ({ playlistId, removed }: { playlistId: string; removed: RemovedPlaylistRow[] }): Promise<Track[]> => {
+    const db = getDb(dataDir);
+    restorePlaylistTracks(db, playlistId, removed);
     return readPlaylistTracks(db, playlistId);
   },
 

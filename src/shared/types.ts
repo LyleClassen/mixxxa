@@ -67,6 +67,25 @@ export interface PlaylistReorderDiff {
   orderedTrackIds: string[];
 }
 
+export interface PlaylistRemovalDiff {
+  playlistId: string;
+  name: string;
+  removedTracks: Array<{ trackId: string; title: string }>;
+}
+
+// A local playlist_song row snapshot, captured at removal time so an undo
+// can re-insert it verbatim (same id/seq) rather than re-deriving position.
+export interface RemovedPlaylistRow {
+  id: string;
+  contentId: string;
+  seq: number;
+}
+
+export interface RemoveFromPlaylistResult {
+  tracks: Track[];
+  removed: RemovedPlaylistRow[];
+}
+
 export interface TrackValueChange {
   trackId: string;
   title: string;
@@ -77,6 +96,7 @@ export interface TrackValueChange {
 
 export interface RekordboxDiff {
   playlists: PlaylistReorderDiff[];
+  removals: PlaylistRemovalDiff[];
   trackChanges: TrackValueChange[];
   // Rekordbox local update sequence number captured at diff time — re-checked
   // before write to detect concurrent Rekordbox edits.
@@ -86,6 +106,7 @@ export interface RekordboxDiff {
 // Which changed aspects the user chose to push. All true by default.
 export interface WriteBackAspects {
   ordering: boolean;
+  removals: boolean;
   bpm: boolean;
   key: boolean;
   metadata: boolean;
@@ -93,13 +114,14 @@ export interface WriteBackAspects {
 
 export interface WriteBackSummary {
   playlistsReordered: number;
+  tracksRemoved: number;
   bpmUpdated: number;
   keysUpdated: number;
   metadataUpdated: number;
 }
 
 export interface WriteBackProgress {
-  phase: "backup" | "ordering" | "bpm" | "key" | "metadata";
+  phase: "backup" | "ordering" | "removals" | "bpm" | "key" | "metadata";
   current: number;
   total: number;
   label: string;
@@ -309,7 +331,8 @@ export type MixxxRPC = {
       getPlaylistTracks: { params: { playlistId: string }; response: Track[] };
       getAllTracks: { params: undefined; response: Track[] };
       reorderPlaylistTracks: { params: { playlistId: string; orderedTrackIds: string[] }; response: Track[] };
-      removeTracksFromPlaylist: { params: { playlistId: string; trackIds: string[] }; response: Track[] };
+      removeTracksFromPlaylist: { params: { playlistId: string; trackIds: string[] }; response: RemoveFromPlaylistResult };
+      undoRemoveFromPlaylist: { params: { playlistId: string; removed: RemovedPlaylistRow[] }; response: Track[] };
       getTrackAudioUrl: { params: { trackId: string }; response: GetTrackAudioUrlResult };
       // Waveform
       getWaveformData: { params: { trackId: string }; response: WaveformData | null };
