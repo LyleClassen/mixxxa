@@ -1,0 +1,6 @@
+pyproject.toml
+orbit_sidecar.egg-info/PKG-INFO
+orbit_sidecar.egg-info/SOURCES.txt
+orbit_sidecar.egg-info/dependency_links.txt
+orbit_sidecar.egg-info/requires.txt
+orbit_sidecar.egg-info/top_level.txt

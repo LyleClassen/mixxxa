@@ -1,0 +1,848 @@
+import { Database } from "bun:sqlite";
+import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { SCHEMA_SQL } from "./schema";
+import { parseAnyKey, formatCamelot } from "../../shared/camelot";
+import { deriveReadinessTier, type ReadinessTier } from "../../shared/systemReadiness";
+import type { PlaylistNode, Track, HistoryEntry, CueMarker } from "../../shared/types";
+
+let db: Database | null = null;
+
+const CONTENT_ANALYSIS_COLUMNS = [
+  "file_path TEXT",
+  "path_kind TEXT",
+  "album TEXT",
+  "bit_rate INTEGER",
+  "analyzed_bpm REAL",
+  "analyzed_key TEXT",
+  "analyzed_bitrate INTEGER",
+  "analyzed_energy REAL",
+  "analyzed_loudness_db REAL",
+  "analyzed_dynamic_range_db REAL",
+  "analyzed_danceability REAL",
+  "fingerprint TEXT",
+  "time_fingerprint_ms INTEGER",
+  "analysis_status TEXT",
+  "analyzed_at INTEGER",
+  "time_decode_ms INTEGER",
+  "time_key_ms INTEGER",
+  "time_bpm_ms INTEGER",
+  "time_bitrate_ms INTEGER",
+  "time_orbit_ms INTEGER",
+  "time_total_ms INTEGER",
+  "analyzed_first_beat_sec REAL",
+  "waveform_peaks TEXT",
+  "waveform_duration REAL",
+  "analyzed_readiness TEXT",
+  "readiness_override TEXT",
+  "pending_artist TEXT",
+  "pending_title TEXT",
+  "pending_album TEXT",
+];
+
+// Columns on `content` that hold locally-computed data Rekordbox knows nothing
+// about (analysis results, fingerprint, waveform cache, timings). A re-sync
+// deletes and re-imports every content row from Rekordbox, so these must be
+// snapshotted and restored or they'd be lost on each sync. Derived from
+// CONTENT_ANALYSIS_COLUMNS minus the few columns Rekordbox is authoritative for.
+const REKORDBOX_SOURCED_CONTENT_COLUMNS = new Set(["file_path", "path_kind", "album", "bit_rate"]);
+const LOCAL_CONTENT_COLUMNS: string[] = CONTENT_ANALYSIS_COLUMNS
+  .map((colDef) => colDef.split(" ")[0])
+  .filter((name) => !REKORDBOX_SOURCED_CONTENT_COLUMNS.has(name));
+
+// Columns from the removed genre/mood/arousal analysis aspects. Dropped from any
+// existing DB so the schema stays tidy. analyzed_energy is intentionally absent
+// here — it was dropped previously but is now re-added for the ORBIT engine.
+const REMOVED_ANALYSIS_COLUMNS: Record<string, string[]> = {
+  content: [
+    "analyzed_valence",
+    "analyzed_genre",
+    "analyzed_genre_confidence",
+    "time_energy_ms",
+    "time_valence_ms",
+    "time_genre_ms",
+  ],
+  analysis_queue: ["time_energy_ms", "time_valence_ms", "time_genre_ms"],
+  analysis_history: ["time_energy_ms", "time_valence_ms", "time_genre_ms"],
+};
+
+export function getDb(dataDir: string): Database {
+  if (db) return db;
+
+  mkdirSync(dataDir, { recursive: true });
+  const dbPath = join(dataDir, "library.db");
+  db = new Database(dbPath);
+  db.exec("PRAGMA journal_mode=WAL;");
+  db.exec(SCHEMA_SQL);
+
+  // Idempotent migration: add any missing columns to content
+  const cols = db.query<{ name: string }, []>("PRAGMA table_info(content)").all();
+  const existingNames = new Set(cols.map((c) => c.name));
+  for (const colDef of CONTENT_ANALYSIS_COLUMNS) {
+    const colName = colDef.split(" ")[0];
+    if (!existingNames.has(colName)) {
+      db.exec(`ALTER TABLE content ADD COLUMN ${colDef}`);
+    }
+  }
+
+  // Idempotent migration: drop columns from the removed genre/mood/arousal aspects
+  for (const [table, removedCols] of Object.entries(REMOVED_ANALYSIS_COLUMNS)) {
+    const present = new Set(
+      db.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all().map((c) => c.name),
+    );
+    for (const col of removedCols) {
+      if (present.has(col)) {
+        db.exec(`ALTER TABLE ${table} DROP COLUMN ${col}`);
+      }
+    }
+  }
+
+  // Idempotent migration: add time_bitrate_ms and time_orbit_ms to queue/history
+  for (const table of ["analysis_queue", "analysis_history"]) {
+    const present = new Set(
+      db.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all().map((c) => c.name),
+    );
+    if (!present.has("time_bitrate_ms")) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN time_bitrate_ms INTEGER`);
+    }
+    if (!present.has("time_orbit_ms")) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN time_orbit_ms INTEGER`);
+    }
+  }
+
+  // Idempotent migration: add time_features_ms (Energy) + engine to history
+  {
+    const present = new Set(
+      db.query<{ name: string }, []>("PRAGMA table_info(analysis_history)").all().map((c) => c.name),
+    );
+    if (!present.has("time_features_ms")) {
+      db.exec("ALTER TABLE analysis_history ADD COLUMN time_features_ms INTEGER");
+    }
+    if (!present.has("engine")) {
+      db.exec("ALTER TABLE analysis_history ADD COLUMN engine TEXT");
+    }
+  }
+
+  // Idempotent migration: add source/dirty to cue (locally-created cue tracking)
+  {
+    const present = new Set(
+      db.query<{ name: string }, []>("PRAGMA table_info(cue)").all().map((c) => c.name),
+    );
+    if (!present.has("source")) {
+      db.exec("ALTER TABLE cue ADD COLUMN source TEXT NOT NULL DEFAULT 'rekordbox'");
+    }
+    if (!present.has("dirty")) {
+      db.exec("ALTER TABLE cue ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0");
+    }
+  }
+
+  return db;
+}
+
+export function closeDb(): void {
+  db?.close();
+  db = null;
+}
+
+// ── Read helpers ─────────────────────────────────────────────────────────────
+
+export function readPlaylistTree(database: Database): PlaylistNode[] {
+  type Row = { id: string; name: string; attribute: number; parent_id: string | null };
+  const rows = database.query<Row, []>(
+    "SELECT id, name, attribute, parent_id FROM playlist ORDER BY seq ASC"
+  ).all();
+
+  const byParent = new Map<string | null, Row[]>();
+  for (const row of rows) {
+    const key = row.parent_id ?? null;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key)!.push(row);
+  }
+
+  function buildChildren(parentId: string | null): PlaylistNode[] {
+    return (byParent.get(parentId) ?? []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      isFolder: row.attribute === 1,
+      children: buildChildren(row.id),
+    }));
+  }
+
+  return buildChildren(null);
+}
+
+type ContentRow = {
+  content_id: string;
+  title: string | null;
+  bpm: number | null;
+  length: number | null;
+  rating: number | null;
+  artist_name: string | null;
+  key_name: string | null;
+  file_path: string | null;
+  album: string | null;
+  bit_rate: number | null;
+  analyzed_bpm: number | null;
+  analyzed_key: string | null;
+  analyzed_bitrate: number | null;
+  analyzed_energy: number | null;
+  analyzed_loudness_db: number | null;
+  analyzed_dynamic_range_db: number | null;
+  analyzed_danceability: number | null;
+  fingerprint: string | null;
+  analysis_status: string | null;
+  analyzed_readiness: string | null;
+  readiness_override: string | null;
+  pending_artist: string | null;
+  pending_title: string | null;
+  pending_album: string | null;
+};
+
+// Canonicalise any key notation to Camelot so the same key spelled differently
+// (e.g. Rekordbox "Cm" vs analysed "5A") doesn't register as a difference.
+function canonicalKey(k: string | null): string {
+  if (!k) return "";
+  const parsed = parseAnyKey(k);
+  return parsed ? formatCamelot(parsed) : k.trim().toLowerCase();
+}
+
+function rowToTrack(row: ContentRow): Track {
+  const rbBpm = row.bpm != null ? row.bpm / 100 : null;
+  const analyzedBpm = row.analyzed_bpm ?? null;
+  const rbKey = row.key_name ?? "";
+  const analyzedKey = row.analyzed_key ?? null;
+
+  const bpmDiffers =
+    rbBpm != null && analyzedBpm != null
+      ? Math.abs(rbBpm - analyzedBpm) > 1
+      : false;
+  const keyDiffers =
+    rbKey !== "" && analyzedKey != null
+      ? canonicalKey(rbKey) !== canonicalKey(analyzedKey)
+      : false;
+
+  // Effective tier precedence: manual override → stored analysis product →
+  // live fallback computed from whatever bitrate we have. The live fallback
+  // covers tracks that haven't been analyzed yet, so every track shows a
+  // rating immediately.
+  const sourceBitrate = row.analyzed_bitrate ?? row.bit_rate ?? null;
+  const derivedTier =
+    (row.analyzed_readiness as ReadinessTier | null) ?? deriveReadinessTier(sourceBitrate, row.file_path);
+  const override = row.readiness_override as ReadinessTier | null;
+
+  return {
+    id: row.content_id,
+    title: row.title ?? "",
+    artist: row.artist_name ?? "",
+    album: row.album ?? null,
+    bpm: rbBpm,
+    key: rbKey,
+    length: row.length ?? null,
+    bitrate: row.bit_rate ?? null,
+    analyzedBitrate: row.analyzed_bitrate ?? null,
+    rating: row.rating ?? null,
+    filePath: row.file_path ?? null,
+    analyzedBpm,
+    analyzedKey,
+    analyzedEnergy: row.analyzed_energy ?? null,
+    analyzedLoudnessDb: row.analyzed_loudness_db ?? null,
+    analyzedDynamicRangeDb: row.analyzed_dynamic_range_db ?? null,
+    analyzedDanceability: row.analyzed_danceability ?? null,
+    fingerprint: row.fingerprint ?? null,
+    analysisStatus: (row.analysis_status as Track["analysisStatus"]) ?? null,
+    bpmDiffers,
+    keyDiffers,
+    systemReadiness: override ?? derivedTier,
+    systemReadinessIsOverride: override != null,
+    systemReadinessDerivedTier: derivedTier,
+    systemReadinessSourceBitrate: sourceBitrate,
+    pendingArtist: row.pending_artist ?? null,
+    pendingTitle: row.pending_title ?? null,
+    pendingAlbum: row.pending_album ?? null,
+  };
+}
+
+const TRACK_SELECT = `
+  c.id AS content_id,
+  c.title,
+  c.bpm,
+  c.length,
+  c.rating,
+  c.file_path,
+  c.album,
+  c.bit_rate,
+  a.name AS artist_name,
+  k.name AS key_name,
+  c.analyzed_bpm,
+  c.analyzed_key,
+  c.analyzed_bitrate,
+  c.analyzed_energy,
+  c.analyzed_loudness_db,
+  c.analyzed_dynamic_range_db,
+  c.analyzed_danceability,
+  c.fingerprint,
+  c.analysis_status,
+  c.analyzed_readiness,
+  c.readiness_override,
+  c.pending_artist,
+  c.pending_title,
+  c.pending_album
+`;
+
+export function readPlaylistTracks(database: Database, playlistId: string): Track[] {
+  const rows = database.query<ContentRow, [string]>(`
+    SELECT ${TRACK_SELECT}
+    FROM playlist_song ps
+    JOIN content c ON c.id = ps.content_id
+    LEFT JOIN artist a ON a.id = c.artist_id
+    LEFT JOIN key k ON k.id = c.key_id
+    WHERE ps.playlist_id = ? AND c.path_kind IS NOT 'streaming'
+    ORDER BY ps.seq ASC
+  `).all(playlistId);
+  return rows.map(rowToTrack);
+}
+
+export function readAllTracks(database: Database): Track[] {
+  const rows = database.query<ContentRow, []>(`
+    SELECT ${TRACK_SELECT}
+    FROM content c
+    LEFT JOIN artist a ON a.id = c.artist_id
+    LEFT JOIN key k ON k.id = c.key_id
+    WHERE c.path_kind IS NOT 'streaming'
+    ORDER BY a.name ASC, c.title ASC
+  `).all();
+  return rows.map(rowToTrack);
+}
+
+// Rewrite playlist_song.seq for a playlist so each content_id gets its index in
+// orderedTrackIds (0..n-1). Single transaction; idempotent. Only affects rows
+// already in the playlist — unknown ids are ignored, missing ones left untouched.
+export function reorderPlaylistTracks(
+  database: Database,
+  playlistId: string,
+  orderedTrackIds: string[],
+): void {
+  const update = database.prepare(
+    "UPDATE playlist_song SET seq = ? WHERE playlist_id = ? AND content_id = ?",
+  );
+  const tx = database.transaction(() => {
+    orderedTrackIds.forEach((contentId, index) => {
+      update.run(index, playlistId, contentId);
+    });
+  });
+  tx();
+}
+
+// ── Write-back read helpers ───────────────────────────────────────────────────
+
+/** Non-folder playlists (lists + smart lists), in tree order. */
+export function readNonFolderPlaylists(database: Database): Array<{ id: string; name: string }> {
+  return database.query<{ id: string; name: string }, []>(
+    "SELECT id, name FROM playlist WHERE attribute IN (0, 4) ORDER BY seq ASC"
+  ).all();
+}
+
+/** Ordered content ids for a playlist (local mirror order). */
+export function readLocalPlaylistOrder(database: Database, playlistId: string): string[] {
+  return database.query<{ content_id: string }, [string]>(
+    "SELECT content_id FROM playlist_song WHERE playlist_id = ? ORDER BY seq ASC"
+  ).all(playlistId).map((r) => r.content_id);
+}
+
+/** Tracks that have at least one analyzed value worth promoting to Rekordbox. */
+export function readAnalyzedTracks(
+  database: Database,
+): Array<{ id: string; title: string; analyzedBpm: number | null; analyzedKey: string | null }> {
+  return database.query<
+    { id: string; title: string | null; analyzed_bpm: number | null; analyzed_key: string | null },
+    []
+  >(
+    "SELECT id, title, analyzed_bpm, analyzed_key FROM content WHERE analyzed_bpm IS NOT NULL OR analyzed_key IS NOT NULL"
+  ).all().map((r) => ({
+    id: r.id,
+    title: r.title ?? "",
+    analyzedBpm: r.analyzed_bpm ?? null,
+    analyzedKey: r.analyzed_key ?? null,
+  }));
+}
+
+// ── Analysis write helpers ────────────────────────────────────────────────────
+
+export interface AnalyzedValues {
+  analyzedBpm?: number | null;
+  analyzedKey?: string | null;
+  analyzedEnergy?: number | null;
+  analyzedLoudnessDb?: number | null;
+  analyzedDynamicRangeDb?: number | null;
+  analyzedDanceability?: number | null;
+  analyzedFirstBeatSec?: number | null;
+  analysisStatus: string;
+  analyzedAt?: number;
+  timeDecodeMs?: number | null;
+  timeKeyMs?: number | null;
+  timeBpmMs?: number | null;
+  timeOrbitMs?: number | null;
+  timeTotalMs?: number | null;
+}
+
+// COALESCE(?, col) means: use the provided value if non-null, else keep the
+// current column value. This lets Essentia and ORBIT writes coexist — each
+// engine only overwrites the columns it actually computes.
+export function writeAnalyzedValues(database: Database, trackId: string, values: AnalyzedValues): void {
+  database.run(
+    `UPDATE content SET
+      analyzed_bpm = COALESCE(?, analyzed_bpm),
+      analyzed_key = COALESCE(?, analyzed_key),
+      analyzed_energy = COALESCE(?, analyzed_energy),
+      analyzed_loudness_db = COALESCE(?, analyzed_loudness_db),
+      analyzed_dynamic_range_db = COALESCE(?, analyzed_dynamic_range_db),
+      analyzed_danceability = COALESCE(?, analyzed_danceability),
+      analyzed_first_beat_sec = COALESCE(?, analyzed_first_beat_sec),
+      analysis_status = ?,
+      analyzed_at = ?,
+      time_decode_ms = COALESCE(?, time_decode_ms),
+      time_key_ms = COALESCE(?, time_key_ms),
+      time_bpm_ms = COALESCE(?, time_bpm_ms),
+      time_orbit_ms = COALESCE(?, time_orbit_ms),
+      time_total_ms = COALESCE(?, time_total_ms)
+    WHERE id = ?`,
+    values.analyzedBpm ?? null,
+    values.analyzedKey ?? null,
+    values.analyzedEnergy ?? null,
+    values.analyzedLoudnessDb ?? null,
+    values.analyzedDynamicRangeDb ?? null,
+    values.analyzedDanceability ?? null,
+    values.analyzedFirstBeatSec ?? null,
+    values.analysisStatus,
+    values.analyzedAt ?? Date.now(),
+    values.timeDecodeMs ?? null,
+    values.timeKeyMs ?? null,
+    values.timeBpmMs ?? null,
+    values.timeOrbitMs ?? null,
+    values.timeTotalMs ?? null,
+    trackId,
+  );
+}
+
+export function appendAnalysisHistory(database: Database, entry: {
+  id: string;
+  trackId: string;
+  aspects: string[];
+  status: string;
+  engine?: string | null;
+  timeDecodeMs?: number | null;
+  timeKeyMs?: number | null;
+  timeBpmMs?: number | null;
+  timeBitrateMs?: number | null;
+  timeOrbitMs?: number | null;
+  timeFeaturesMs?: number | null;
+  timeTotalMs?: number | null;
+}): void {
+  database.run(
+    `INSERT INTO analysis_history
+      (id, track_id, aspects, status, engine, time_decode_ms, time_key_ms, time_bpm_ms, time_bitrate_ms, time_orbit_ms, time_features_ms, time_total_ms, finished_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    entry.id,
+    entry.trackId,
+    JSON.stringify(entry.aspects),
+    entry.status,
+    entry.engine ?? null,
+    entry.timeDecodeMs ?? null,
+    entry.timeKeyMs ?? null,
+    entry.timeBpmMs ?? null,
+    entry.timeBitrateMs ?? null,
+    entry.timeOrbitMs ?? null,
+    entry.timeFeaturesMs ?? null,
+    entry.timeTotalMs ?? null,
+    Date.now(),
+  );
+}
+
+// ── Cue helpers ───────────────────────────────────────────────────────────────
+
+type CueDbRow = {
+  id: string;
+  position_sec: number;
+  end_sec: number | null;
+  kind: number;
+  color: string | null;
+  comment: string | null;
+};
+
+/** Full cue row including local-tracking columns — used for undo snapshots. */
+export interface CueRow extends CueDbRow {
+  content_id: string;
+  source: string;
+  dirty: number;
+}
+
+function cueRowToMarker(c: CueDbRow): CueMarker {
+  return {
+    id: c.id,
+    positionSec: c.position_sec,
+    endSec: c.end_sec,
+    kind: c.kind,
+    color: c.color,
+    comment: c.comment,
+  };
+}
+
+export function readTrackCues(database: Database, trackId: string): CueMarker[] {
+  // Sorted ascending — overlays and slot listings rely on this order.
+  const rows = database.query<CueDbRow, [string]>(
+    "SELECT id, position_sec, end_sec, kind, color, comment FROM cue WHERE content_id = ? ORDER BY position_sec ASC"
+  ).all(trackId);
+  return rows.map(cueRowToMarker);
+}
+
+export function readTrackCueRows(database: Database, trackId: string): CueRow[] {
+  return database.query<CueRow, [string]>(
+    "SELECT id, content_id, position_sec, end_sec, kind, color, comment, source, dirty FROM cue WHERE content_id = ? ORDER BY position_sec ASC"
+  ).all(trackId);
+}
+
+/** Replace the hot cue in `slot` (kind 1-8) with a locally-created, dirty cue. */
+export function upsertHotCue(
+  database: Database,
+  trackId: string,
+  slot: number,
+  positionSec: number,
+  color: string | null,
+  comment: string | null,
+): void {
+  const tx = database.transaction(() => {
+    database.run("DELETE FROM cue WHERE content_id = ? AND kind = ?", [trackId, slot]);
+    database.run(
+      "INSERT INTO cue (id, content_id, position_sec, end_sec, kind, color, comment, source, dirty) VALUES (?, ?, ?, ?, ?, ?, ?, 'local', 1)",
+      [crypto.randomUUID(), trackId, positionSec, null, slot, color, comment],
+    );
+  });
+  tx();
+}
+
+export function deleteHotCue(database: Database, trackId: string, slot: number): void {
+  database.run("DELETE FROM cue WHERE content_id = ? AND kind = ?", [trackId, slot]);
+}
+
+/** Transactionally restore a track's cue rows verbatim (undo). */
+export function replaceTrackCueRows(database: Database, trackId: string, rows: CueRow[]): void {
+  const tx = database.transaction(() => {
+    database.run("DELETE FROM cue WHERE content_id = ?", [trackId]);
+    const insert = database.prepare(
+      "INSERT INTO cue (id, content_id, position_sec, end_sec, kind, color, comment, source, dirty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    for (const r of rows) {
+      insert.run(r.id, r.content_id, r.position_sec, r.end_sec, r.kind, r.color, r.comment, r.source, r.dirty);
+    }
+  });
+  tx();
+}
+
+// ── Waveform helpers ──────────────────────────────────────────────────────────
+
+export interface WaveformDataRow {
+  peaks: number[] | null;
+  duration: number | null;
+  bpm: number | null;
+  firstBeatSec: number;
+  cues: CueMarker[];
+}
+
+export function readWaveformData(database: Database, trackId: string): WaveformDataRow | null {
+  type Row = {
+    waveform_peaks: string | null;
+    waveform_duration: number | null;
+    analyzed_bpm: number | null;
+    bpm: number | null;
+    analyzed_first_beat_sec: number | null;
+  };
+  const row = database.query<Row, [string]>(
+    "SELECT waveform_peaks, waveform_duration, analyzed_bpm, bpm, analyzed_first_beat_sec FROM content WHERE id = ?"
+  ).get(trackId);
+  if (!row) return null;
+
+  let peaks: number[] | null = null;
+  if (row.waveform_peaks) {
+    try {
+      peaks = JSON.parse(row.waveform_peaks) as number[];
+    } catch {
+      peaks = null;
+    }
+  }
+
+  return {
+    peaks,
+    duration: row.waveform_duration ?? null,
+    bpm: row.analyzed_bpm ?? (row.bpm != null ? row.bpm / 100 : null),
+    firstBeatSec: row.analyzed_first_beat_sec ?? 0,
+    cues: readTrackCues(database, trackId),
+  };
+}
+
+export function writeWaveformPeaks(database: Database, trackId: string, peaksJson: string, duration: number): void {
+  database.run(
+    "UPDATE content SET waveform_peaks = ?, waveform_duration = ? WHERE id = ?",
+    [peaksJson, duration, trackId],
+  );
+}
+
+export function writeFingerprint(database: Database, trackId: string, fingerprint: string, timeFingerprintMs: number): void {
+  database.run(
+    "UPDATE content SET fingerprint = ?, time_fingerprint_ms = ? WHERE id = ?",
+    [fingerprint, timeFingerprintMs, trackId],
+  );
+}
+
+export function writeAnalyzedBitrate(database: Database, trackId: string, bitrate: number, timeBitrateMs: number): void {
+  const row = database.query<{ file_path: string | null }, [string]>(
+    "SELECT file_path FROM content WHERE id = ?"
+  ).get(trackId);
+  const readiness = deriveReadinessTier(bitrate, row?.file_path ?? null);
+  database.run(
+    "UPDATE content SET analyzed_bitrate = ?, analyzed_readiness = ?, time_bitrate_ms = ? WHERE id = ?",
+    [bitrate, readiness, timeBitrateMs, trackId],
+  );
+}
+
+/** Set (or clear, with `tier: null`) the manual System Readiness override. */
+export function setReadinessOverride(database: Database, trackId: string, tier: ReadinessTier | null): void {
+  database.run("UPDATE content SET readiness_override = ? WHERE id = ?", [tier, trackId]);
+}
+
+// ── Metadata identification (fingerprint lookup) helpers ─────────────────────
+
+export interface MetadataLookupInputs {
+  fingerprint: string | null;
+  filePath: string | null;
+  waveformDuration: number | null;
+}
+
+export function readMetadataLookupInputs(database: Database, trackId: string): MetadataLookupInputs | null {
+  const row = database.query<
+    { fingerprint: string | null; file_path: string | null; waveform_duration: number | null },
+    [string]
+  >("SELECT fingerprint, file_path, waveform_duration FROM content WHERE id = ?").get(trackId);
+  if (!row) return null;
+  return { fingerprint: row.fingerprint, filePath: row.file_path, waveformDuration: row.waveform_duration };
+}
+
+export interface PendingMetadata {
+  artist: string | null;
+  title: string | null;
+  album: string | null;
+}
+
+export function writePendingMetadata(database: Database, trackId: string, values: PendingMetadata): void {
+  database.run(
+    "UPDATE content SET pending_artist = ?, pending_title = ?, pending_album = ? WHERE id = ?",
+    [values.artist, values.title, values.album, trackId],
+  );
+}
+
+export function clearPendingMetadata(database: Database, trackId: string): void {
+  database.run(
+    "UPDATE content SET pending_artist = NULL, pending_title = NULL, pending_album = NULL WHERE id = ?",
+    [trackId],
+  );
+}
+
+/** Tracks with at least one staged pending metadata field — feeds the write-back diff. */
+export function readPendingMetadataTracks(
+  database: Database,
+): Array<{ id: string; title: string; pendingArtist: string | null; pendingTitle: string | null; pendingAlbum: string | null }> {
+  return database.query<
+    { id: string; title: string | null; pending_artist: string | null; pending_title: string | null; pending_album: string | null },
+    []
+  >(
+    "SELECT id, title, pending_artist, pending_title, pending_album FROM content WHERE pending_artist IS NOT NULL OR pending_title IS NOT NULL OR pending_album IS NOT NULL"
+  ).all().map((r) => ({
+    id: r.id,
+    title: r.title ?? "",
+    pendingArtist: r.pending_artist,
+    pendingTitle: r.pending_title,
+    pendingAlbum: r.pending_album,
+  }));
+}
+
+export interface MetadataProvenanceEntry {
+  contentId: string;
+  recordingMbid: string | null;
+  acoustidTrackId: string | null;
+  score: number;
+  originalArtist: string | null;
+  originalTitle: string | null;
+  originalAlbum: string | null;
+}
+
+export function insertMetadataProvenance(database: Database, entry: MetadataProvenanceEntry): void {
+  database.run(
+    `INSERT INTO metadata_provenance
+      (id, content_id, recording_mbid, acoustid_track_id, score, original_artist, original_title, original_album, applied_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      crypto.randomUUID(),
+      entry.contentId,
+      entry.recordingMbid,
+      entry.acoustidTrackId,
+      entry.score,
+      entry.originalArtist,
+      entry.originalTitle,
+      entry.originalAlbum,
+      Date.now(),
+    ],
+  );
+}
+
+export function readTrack(database: Database, trackId: string): Track | null {
+  const row = database.query<ContentRow, [string]>(`
+    SELECT ${TRACK_SELECT}
+    FROM content c
+    LEFT JOIN artist a ON a.id = c.artist_id
+    LEFT JOIN key k ON k.id = c.key_id
+    WHERE c.id = ?
+  `).get(trackId);
+  return row ? rowToTrack(row) : null;
+}
+
+export function readAnalysisHistory(database: Database): HistoryEntry[] {
+  type Row = {
+    id: string;
+    track_id: string;
+    aspects: string;
+    status: string;
+    engine: string | null;
+    time_decode_ms: number | null;
+    time_key_ms: number | null;
+    time_bpm_ms: number | null;
+    time_bitrate_ms: number | null;
+    time_orbit_ms: number | null;
+    time_features_ms: number | null;
+    time_total_ms: number | null;
+    finished_at: number;
+  };
+  const rows = database.query<Row, []>(
+    "SELECT * FROM analysis_history ORDER BY finished_at DESC"
+  ).all();
+  return rows.map((r) => ({
+    id: r.id,
+    trackId: r.track_id,
+    aspects: JSON.parse(r.aspects) as string[],
+    status: r.status,
+    engine: r.engine ?? undefined,
+    timeDecodeMs: r.time_decode_ms ?? undefined,
+    timeKeyMs: r.time_key_ms ?? undefined,
+    timeBpmMs: r.time_bpm_ms ?? undefined,
+    timeBitrateMs: r.time_bitrate_ms ?? undefined,
+    timeOrbitMs: r.time_orbit_ms ?? undefined,
+    timeFeaturesMs: r.time_features_ms ?? undefined,
+    timeTotalMs: r.time_total_ms ?? undefined,
+    finishedAt: r.finished_at,
+  }));
+}
+
+export function pruneAnalysisHistory(database: Database): void {
+  database.exec("DELETE FROM analysis_history");
+}
+
+// ── Write helpers ─────────────────────────────────────────────────────────────
+
+interface LibraryData {
+  playlists: Array<{ id: string; name: string; attribute: number; parent_id: string | null; seq: number }>;
+  playlistSongs: Array<{ id: string; playlist_id: string; content_id: string; seq: number }>;
+  contents: Array<{ id: string; title: string | null; artist_id: string | null; key_id: string | null; bpm: number | null; length: number | null; bit_rate: number | null; rating: number | null; file_path: string | null; path_kind: string | null; album: string | null }>;
+  artists: Array<{ id: string; name: string }>;
+  keys: Array<{ id: string; name: string }>;
+  cues: Array<{ id: string; content_id: string; position_sec: number; end_sec: number | null; kind: number; color: string | null; comment: string | null }>;
+}
+
+export function replaceLibrary(database: Database, data: LibraryData): void {
+  const tx = database.transaction(() => {
+    // Locally-created cues survive a re-sync — Rekordbox doesn't know about
+    // them yet (write-back reconciles later).
+    const localCues = database.query<CueRow, []>(
+      "SELECT id, content_id, position_sec, end_sec, kind, color, comment, source, dirty FROM cue WHERE source = 'local'"
+    ).all();
+
+    // Snapshot locally-computed analysis/waveform columns before content is
+    // cleared — Rekordbox never stored these, so they must be carried across
+    // the re-import and re-applied to rows that still exist.
+    type LocalContentRow = { id: string } & Record<string, unknown>;
+    const preservedLocal = database.query<LocalContentRow, []>(
+      `SELECT id, ${LOCAL_CONTENT_COLUMNS.join(", ")} FROM content`
+    ).all();
+
+    database.exec("DELETE FROM playlist_song");
+    database.exec("DELETE FROM playlist");
+    database.exec("DELETE FROM content");
+    database.exec("DELETE FROM artist");
+    database.exec("DELETE FROM key");
+    database.exec("DELETE FROM cue");
+
+    const insertPlaylist = database.prepare(
+      "INSERT INTO playlist (id, name, attribute, parent_id, seq) VALUES (?, ?, ?, ?, ?)"
+    );
+    for (const p of data.playlists) {
+      insertPlaylist.run(p.id, p.name, p.attribute, p.parent_id, p.seq);
+    }
+
+    const insertSong = database.prepare(
+      "INSERT INTO playlist_song (id, playlist_id, content_id, seq) VALUES (?, ?, ?, ?)"
+    );
+    for (const s of data.playlistSongs) {
+      insertSong.run(s.id, s.playlist_id, s.content_id, s.seq);
+    }
+
+    const insertContent = database.prepare(
+      "INSERT INTO content (id, title, artist_id, key_id, bpm, length, bit_rate, rating, file_path, path_kind, album) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    for (const c of data.contents) {
+      insertContent.run(c.id, c.title, c.artist_id, c.key_id, c.bpm, c.length, c.bit_rate, c.rating, c.file_path, c.path_kind, c.album);
+    }
+
+    // Re-apply preserved local analysis data to tracks that still exist. Rows
+    // for tracks removed from Rekordbox simply don't match and are dropped;
+    // newly-added tracks keep their default NULLs until analyzed.
+    const restoreLocal = database.prepare(
+      `UPDATE content SET ${LOCAL_CONTENT_COLUMNS.map((col) => `${col} = ?`).join(", ")} WHERE id = ?`
+    );
+    for (const row of preservedLocal) {
+      const params = [...LOCAL_CONTENT_COLUMNS.map((col) => row[col] ?? null), row.id];
+      (restoreLocal.run as (...args: unknown[]) => unknown)(...params);
+    }
+
+    const insertArtist = database.prepare("INSERT INTO artist (id, name) VALUES (?, ?)");
+    for (const a of data.artists) {
+      insertArtist.run(a.id, a.name);
+    }
+
+    const insertKey = database.prepare("INSERT INTO key (id, name) VALUES (?, ?)");
+    for (const k of data.keys) {
+      insertKey.run(k.id, k.name);
+    }
+
+    const insertCue = database.prepare(
+      "INSERT INTO cue (id, content_id, position_sec, end_sec, kind, color, comment) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    );
+    for (const c of data.cues) {
+      insertCue.run(c.id, c.content_id, c.position_sec, c.end_sec, c.kind, c.color, c.comment);
+    }
+
+    // Re-insert local cues whose track still exists. Local dirty cues win hot-cue
+    // slot conflicts against incoming Rekordbox cues — they represent newer local
+    // intent; the future write-back stage reconciles the divergence.
+    const trackIds = new Set(data.contents.map((c) => c.id));
+    const deleteSlotCue = database.prepare(
+      "DELETE FROM cue WHERE content_id = ? AND kind = ?"
+    );
+    const insertLocalCue = database.prepare(
+      "INSERT INTO cue (id, content_id, position_sec, end_sec, kind, color, comment, source, dirty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    for (const c of localCues) {
+      if (!trackIds.has(c.content_id)) continue;
+      if (c.kind > 0) deleteSlotCue.run(c.content_id, c.kind);
+      insertLocalCue.run(c.id, c.content_id, c.position_sec, c.end_sec, c.kind, c.color, c.comment, c.source, c.dirty);
+    }
+  });
+
+  tx();
+}

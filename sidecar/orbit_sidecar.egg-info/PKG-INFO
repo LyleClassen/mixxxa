@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: orbit-sidecar
+Version: 0.1.0
+Requires-Python: >=3.10
+Requires-Dist: orbit-dsp==1.0.1
+Requires-Dist: pandas>=2.0
+Requires-Dist: xgboost>=2.0
+Requires-Dist: joblib>=1.3
+Requires-Dist: scikit-learn>=1.3

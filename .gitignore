@@ -1,17 +1,9 @@
-# Dependencies
 node_modules/
-*.pnp
-*.pnp.js
-bun.lock
-
-
-# Build & dist
 build/
 dist/
-*.local
 artifacts/
+*.tsbuildinfo
 
-# AI
-.opencode
-.claude
-.agent
+# Large model weights
+*.gguf
+__pycache__/

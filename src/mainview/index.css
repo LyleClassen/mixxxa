@@ -1,3 +1,86 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+
+	--color-key-green: var(--key-green);
+	--color-key-blue: var(--key-blue);
+	--color-key-purple: var(--key-purple);
+	--color-key-pink: var(--key-pink);
+	--color-key-cyan: var(--key-cyan);
+	--color-key-orange: var(--key-orange);
+	--color-key-lightgreen: var(--key-lightgreen);
+
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+	--radius: 0.625rem;
+	/* Deep dark gray/purple for background */
+	--background: #111115;
+	--foreground: #f3f4f6;
+	--card: #18181f;
+	--card-foreground: #f3f4f6;
+	--popover: #18181f;
+	--popover-foreground: #f3f4f6;
+	/* Lime Green Primary */
+	--primary: #a3e635;
+	--primary-foreground: #000000;
+	/* Subtle darker gray for secondary */
+	--secondary: #27272a;
+	--secondary-foreground: #f3f4f6;
+	/* Muted for subtle text/borders */
+	--muted: #27272a;
+	--muted-foreground: #a1a1aa;
+	/* Purple Accent */
+	--accent: #a855f7;
+	--accent-foreground: #ffffff;
+	--destructive: #ef4444;
+	--destructive-foreground: #ffffff;
+	--border: #27272a;
+	--input: #27272a;
+	--ring: #a3e635;
+
+	/* Key Badge Colors (like Camelot Wheel) */
+	--key-green: #4ade80;
+	--key-blue: #60a5fa;
+	--key-purple: #c084fc;
+	--key-pink: #f472b6;
+	--key-cyan: #22d3ee;
+	--key-orange: #fbbf24;
+	--key-lightgreen: #bef264;
+}
+
+@layer base {
+	* {
+		@apply border-border;
+	}
+	body {
+		@apply bg-background text-foreground;
+		font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+	}
+}

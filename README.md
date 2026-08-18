@@ -59,3 +59,43 @@ When you run `bun run dev` (without HMR):
 - **Vite settings**: Edit `vite.config.ts`
 - **Window settings**: Edit `src/bun/index.ts`
 - **App metadata**: Edit `electrobun.config.ts`
+
+## Patched dependencies
+
+### `rbox-js`
+
+`rbox-js@0.1.7` ships an auto-generated NAPI-RS loader that does
+`require = createRequire(__filename)` at the top of `index.js`. Bun's
+bundler hoists that bare `require` to the bundle-wide `__require` and
+treats the assignment as a global mutation, which breaks the bundled
+native-binding lookup (the `.node` file gets a hashed filename next to
+the bundle, but the rebound `__require` resolves relative to
+`node_modules/rbox-js/` instead). The result is a runtime
+`Cannot find native binding` error when launching the app.
+
+The patch in `patches/rbox-js@0.1.7.patch` removes the unnecessary
+reassignment (`require` is already module-local in CJS). It is applied
+automatically via `patchedDependencies` in `package.json`.
+
+**Bumping `rbox-js`:**
+
+1. Update the version in `package.json` and run `bun install` — the
+   install will warn that the patch no longer applies cleanly.
+2. Re-prepare the patch:
+   ```bash
+   bun patch rbox-js
+   ```
+3. Edit `node_modules/rbox-js/index.js` and remove the two lines:
+   ```js
+   const { createRequire } = require('node:module')
+   require = createRequire(__filename)
+   ```
+4. Commit the new patch:
+   ```bash
+   bun patch --commit 'node_modules/rbox-js'
+   ```
+5. Verify by running `bun run dev:hmr` — the app should start without a
+   `Cannot find native binding` error.
+
+If upstream rbox-js drops the `require =` reassignment (or Bun fixes
+the hoisting behavior), the patch can be removed entirely.

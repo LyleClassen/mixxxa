@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun -e \"console.log\\(require\\('os'\\).tmpdir\\(\\)\\)\")",
+      "Bash(bun -e ' *)",
+      "PowerShell(bunx tsc --noEmit)",
+      "PowerShell(npx tsc --noEmit)"
+    ]
+  }
+}
