@@ -14,6 +14,10 @@ export function SortableTrackRow({
   canReorder,
   showDropBefore,
   showDropAfter,
+  selected,
+  focused,
+  onClick,
+  onMouseDown,
   onDoubleClick,
   onContextMenu,
   children,
@@ -22,6 +26,10 @@ export function SortableTrackRow({
   canReorder: boolean;
   showDropBefore: boolean;
   showDropAfter: boolean;
+  selected: boolean;
+  focused: boolean;
+  onClick: (e: React.MouseEvent) => void;
+  onMouseDown: (e: React.MouseEvent) => void;
   onDoubleClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   children: ReactNode;
@@ -41,9 +49,13 @@ export function SortableTrackRow({
   return (
     <tr
       ref={setNodeRef}
+      onClick={onClick}
+      onMouseDown={onMouseDown}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
-      className={`hover:bg-muted/30 transition-colors group cursor-pointer ${isDragging ? "opacity-40" : ""}`}
+      className={`select-none transition-colors group cursor-pointer ${
+        selected ? "bg-primary/20" : focused ? "bg-muted/40" : "hover:bg-muted/30"
+      } ${isDragging ? "opacity-40" : ""}`}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
@@ -56,6 +68,8 @@ export function SortableTrackRow({
           <span
             className="inline-flex items-center justify-center text-muted-foreground/50 hover:text-foreground cursor-grab"
             style={{ touchAction: "none" }}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
             onContextMenu={(e) => e.stopPropagation()}
             {...attributes}

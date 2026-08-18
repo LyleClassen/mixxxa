@@ -1,4 +1,4 @@
-import { useState, useMemo, type CSSProperties } from "react";
+import { useState, useMemo, useRef, type CSSProperties } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -23,6 +23,7 @@ import type { Track, KeyNotation } from "../../../shared/types";
 import type { ReadinessTier } from "../../../shared/systemReadiness";
 import { buildTrackColumns } from "./columns";
 import { useColumnConfig } from "./useColumnConfig";
+import { useRowSelection } from "./useRowSelection";
 import { ColumnContextMenu } from "./ColumnContextMenu";
 import { RowContextMenu } from "./RowContextMenu";
 import { SortableHeaderCell } from "./SortableHeaderCell";
@@ -108,6 +109,10 @@ export function TrackTable({
   const [headerMenuPos, setHeaderMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [rowMenu, setRowMenu] = useState<{ pos: { x: number; y: number }; track: Track } | null>(null);
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const rows = table.getRowModel().rows;
+  const rowSelection = useRowSelection(rows.map((r) => r.id), currentPlaylistId);
+
   const canReorder = reorderable && !searchActive;
 
   const visibleColumns = table.getVisibleLeafColumns();
@@ -186,12 +191,16 @@ export function TrackTable({
 
   const activeColIndex = activeColId ? visibleColumns.findIndex((c) => c.id === activeColId) : -1;
   const overColIndex = overColId ? visibleColumns.findIndex((c) => c.id === overColId) : -1;
-  const rows = table.getRowModel().rows;
   const activeRowIndex = activeRowId ? rows.findIndex((r) => r.id === activeRowId) : -1;
   const overRowIndex = overRowId ? rows.findIndex((r) => r.id === overRowId) : -1;
 
   return (
-    <div className="relative w-full h-full overflow-auto">
+    <div
+      ref={containerRef}
+      tabIndex={0}
+      onKeyDown={rowSelection.handleKeyDown}
+      className="relative w-full h-full overflow-auto outline-none"
+    >
       {headerMenuPos && (
         <ColumnContextMenu
           pos={headerMenuPos}
@@ -288,6 +297,13 @@ export function TrackTable({
                     canReorder={canReorder}
                     showDropBefore={showDropBefore}
                     showDropAfter={showDropAfter}
+                    selected={rowSelection.selectedIds.has(row.id)}
+                    focused={rowSelection.focusedId === row.id}
+                    onClick={(e) => {
+                      rowSelection.handleRowClick(row.id, e);
+                      containerRef.current?.focus();
+                    }}
+                    onMouseDown={rowSelection.handleRowMouseDown}
                     onDoubleClick={() => onTrackDoubleClick(track)}
                     onContextMenu={(e) => {
                       e.preventDefault();
