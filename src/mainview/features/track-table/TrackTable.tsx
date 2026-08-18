@@ -12,6 +12,11 @@ import { useColumnConfig } from "./useColumnConfig";
 import { ColumnContextMenu } from "./ColumnContextMenu";
 import { RowContextMenu } from "./RowContextMenu";
 
+// Drag-reorder shift-preview animation, settled via prototype (wayfinder
+// ticket #3: https://github.com/LyleClassen/mixxxa/issues/3) — siblings
+// slide out of the way with a slight spring overshoot as you drag.
+const SHIFT_TRANSITION = "transform 140ms cubic-bezier(0.34, 1.56, 0.64, 1)";
+
 export interface TrackTableProps {
   tracks: Track[];
   onTrackDoubleClick: (track: Track) => void;
@@ -83,7 +88,7 @@ export function TrackTable({
   const [reorderDrag, setReorderDrag] = useState<{ colId: string; dropIndex: number } | null>(null);
 
   // Row drag-to-reorder state (mirrors the column-reorder pointer pattern).
-  const rowReorderRef = useRef<{ trackId: string; startY: number } | null>(null);
+  const rowReorderRef = useRef<{ trackId: string; startY: number; rowHeight: number } | null>(null);
   const [rowDrag, setRowDrag] = useState<{ trackId: string; dropIndex: number } | null>(null);
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
 
@@ -173,6 +178,29 @@ export function TrackTable({
     onReorder?.(newOrder);
   }
 
+  // Px offset to preview a column/row sliding out of the way of an in-flight drag.
+  function computeColumnShiftPx(colIdx: number): number {
+    if (!reorderDrag) return 0;
+    const fromIndex = visibleColumns.findIndex((c) => c.id === reorderDrag.colId);
+    if (fromIndex === -1 || colIdx === fromIndex) return 0;
+    const draggedWidth = visibleColumns[fromIndex].getSize();
+    const dropIdx = reorderDrag.dropIndex;
+    if (fromIndex < dropIdx && colIdx > fromIndex && colIdx < dropIdx) return -draggedWidth;
+    if (fromIndex > dropIdx && colIdx >= dropIdx && colIdx < fromIndex) return draggedWidth;
+    return 0;
+  }
+
+  function computeRowShiftPx(rowIdx: number): number {
+    if (!rowDrag) return 0;
+    const fromIndex = tracks.findIndex((t) => t.id === rowDrag.trackId);
+    if (fromIndex === -1 || rowIdx === fromIndex) return 0;
+    const rowHeight = rowReorderRef.current?.rowHeight ?? 37;
+    const dropIdx = rowDrag.dropIndex;
+    if (fromIndex < dropIdx && rowIdx > fromIndex && rowIdx < dropIdx) return -rowHeight;
+    if (fromIndex > dropIdx && rowIdx >= dropIdx && rowIdx < fromIndex) return rowHeight;
+    return 0;
+  }
+
   const dropIndicatorIndex = reorderDrag?.dropIndex ?? null;
   const rows = table.getRowModel().rows;
 
@@ -226,12 +254,17 @@ export function TrackTable({
                 const isDragging = reorderDrag?.colId === colId;
                 const showDropBefore = dropIndicatorIndex === colIdx;
                 const showDropAfter = dropIndicatorIndex === visibleColumns.length && colIdx === visibleColumns.length - 1;
+                const shiftPx = computeColumnShiftPx(colIdx);
 
                 return (
                   <th
                     key={header.id}
                     className={`relative px-3 py-4 font-medium overflow-hidden ${isDragging ? "opacity-40 outline outline-1 outline-primary" : ""}`}
-                    style={{ position: "relative" }}
+                    style={{
+                      position: "relative",
+                      transform: shiftPx ? `translateX(${shiftPx}px)` : undefined,
+                      transition: isDragging ? undefined : SHIFT_TRANSITION,
+                    }}
                     onPointerDown={(e) => {
                       if (e.button !== 0) return;
                       e.currentTarget.setPointerCapture(e.pointerId);
@@ -307,6 +340,7 @@ export function TrackTable({
               : showDropAfter
                 ? { boxShadow: "inset 0 -2px 0 0 var(--color-primary)" }
                 : undefined;
+            const shiftPx = computeRowShiftPx(rowIdx);
 
             return (
               <tr
@@ -317,6 +351,12 @@ export function TrackTable({
                   setRowMenu({ pos: { x: e.clientX, y: e.clientY }, track });
                 }}
                 className={`hover:bg-muted/30 transition-colors group cursor-pointer ${isRowDragging ? "opacity-40" : ""}`}
+                style={{
+                  transform: shiftPx ? `translateY(${shiftPx}px)` : undefined,
+                  transition: isRowDragging ? undefined : SHIFT_TRANSITION,
+                  position: shiftPx ? "relative" : undefined,
+                  zIndex: isRowDragging || shiftPx ? 1 : undefined,
+                }}
               >
                 {canReorder && (
                   <td className="px-1 align-middle" style={dropStyle}>
@@ -327,7 +367,8 @@ export function TrackTable({
                         if (e.button !== 0) return;
                         e.stopPropagation();
                         e.currentTarget.setPointerCapture(e.pointerId);
-                        rowReorderRef.current = { trackId: track.id, startY: e.clientY };
+                        const rowHeight = e.currentTarget.closest("tr")?.getBoundingClientRect().height ?? 37;
+                        rowReorderRef.current = { trackId: track.id, startY: e.clientY, rowHeight };
                         setRowDrag({ trackId: track.id, dropIndex: rowIdx });
                       }}
                       onPointerMove={(e) => {
