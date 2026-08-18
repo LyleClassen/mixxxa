@@ -1,21 +1,32 @@
-import { useState, useRef, useEffect, useMemo, type CSSProperties } from "react";
+import { useState, useMemo, type CSSProperties } from "react";
 import {
   useReactTable,
   getCoreRowModel,
   flexRender,
 } from "@tanstack/react-table";
-import { GripVertical } from "lucide-react";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import type { Track, KeyNotation } from "../../../shared/types";
 import type { ReadinessTier } from "../../../shared/systemReadiness";
 import { buildTrackColumns } from "./columns";
 import { useColumnConfig } from "./useColumnConfig";
 import { ColumnContextMenu } from "./ColumnContextMenu";
 import { RowContextMenu } from "./RowContextMenu";
-
-// Drag-reorder shift-preview animation, settled via prototype (wayfinder
-// ticket #3: https://github.com/LyleClassen/mixxxa/issues/3) — siblings
-// slide out of the way with a slight spring overshoot as you drag.
-const SHIFT_TRANSITION = "transform 140ms cubic-bezier(0.34, 1.56, 0.64, 1)";
+import { SortableHeaderCell } from "./SortableHeaderCell";
+import { SortableTrackRow } from "./SortableTrackRow";
 
 export interface TrackTableProps {
   tracks: Track[];
@@ -84,61 +95,29 @@ export function TrackTable({
     meta: { onSetReadinessOverride, onDiscardPendingMetadata },
   });
 
-  const reorderRef = useRef<{ colId: string; startX: number } | null>(null);
-  const [reorderDrag, setReorderDrag] = useState<{ colId: string; dropIndex: number } | null>(null);
+  // Column drag-to-reorder state, driven by dnd-kit.
+  const [activeColId, setActiveColId] = useState<string | null>(null);
+  const [overColId, setOverColId] = useState<string | null>(null);
+  const columnSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
-  // Row drag-to-reorder state (mirrors the column-reorder pointer pattern).
-  const rowReorderRef = useRef<{ trackId: string; startY: number; rowHeight: number } | null>(null);
-  const [rowDrag, setRowDrag] = useState<{ trackId: string; dropIndex: number } | null>(null);
-  const tbodyRef = useRef<HTMLTableSectionElement>(null);
+  // Row drag-to-reorder state, driven by dnd-kit.
+  const [activeRowId, setActiveRowId] = useState<string | null>(null);
+  const [overRowId, setOverRowId] = useState<string | null>(null);
+  const rowSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const [headerMenuPos, setHeaderMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [rowMenu, setRowMenu] = useState<{ pos: { x: number; y: number }; track: Track } | null>(null);
 
-  const headerRowRef = useRef<HTMLTableRowElement>(null);
-
   const canReorder = reorderable && !searchActive;
-
-  // Escape-to-cancel an in-flight row drag.
-  useEffect(() => {
-    if (!rowDrag) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        rowReorderRef.current = null;
-        setRowDrag(null);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [rowDrag]);
 
   const visibleColumns = table.getVisibleLeafColumns();
 
-  function computeDropIndex(clientX: number): number {
-    if (!headerRowRef.current) return 0;
-    const rect = headerRowRef.current.getBoundingClientRect();
-    const relX = clientX - rect.left;
-    let cum = 0;
-    for (let i = 0; i < visibleColumns.length; i++) {
-      const w = visibleColumns[i].getSize();
-      if (relX < cum + w / 2) return i;
-      cum += w;
-    }
-    return visibleColumns.length;
-  }
-
-  function commitReorder(dragColId: string, dropIndex: number) {
-    const visibleIds = visibleColumns.map((c) => c.id);
-    const fromIndex = visibleIds.indexOf(dragColId);
-    if (fromIndex === -1) return;
-    const newVisible = [...visibleIds];
-    newVisible.splice(fromIndex, 1);
-    const adjustedDrop = dropIndex > fromIndex ? dropIndex - 1 : dropIndex;
-    newVisible.splice(adjustedDrop, 0, dragColId);
-    // Re-insert hidden columns (including force-hidden ones like "index" on the
-    // Collection view) after their nearest preceding neighbor so they keep
-    // their relative position in the full order.
+  // Re-insert hidden columns (including force-hidden ones like "index" on the
+  // Collection view) after their nearest preceding neighbor so they keep
+  // their relative position in the full order.
+  function reinsertHiddenColumns(newVisible: string[]): string[] {
     const order = columnConfig.columnOrder;
+    const visibleIds = visibleColumns.map((c) => c.id);
     const hiddenInOrder = order.filter((id) => !visibleIds.includes(id));
     const newOrder = [...newVisible];
     for (const hiddenId of hiddenInOrder) {
@@ -151,58 +130,65 @@ export function TrackTable({
       }
       newOrder.splice(insertAt, 0, hiddenId);
     }
-    table.setColumnOrder(newOrder);
+    return newOrder;
   }
 
-  // Vertical insertion index (0..tracks.length) from a pointer Y position, using
-  // each rendered row's bounding rect against its vertical midpoint.
-  function computeRowDropIndex(clientY: number): number {
-    const tbody = tbodyRef.current;
-    if (!tbody) return 0;
-    const rows = tbody.children;
-    for (let i = 0; i < rows.length; i++) {
-      const rect = rows[i].getBoundingClientRect();
-      if (clientY < rect.top + rect.height / 2) return i;
-    }
-    return rows.length;
+  function handleColumnDragStart(event: DragStartEvent) {
+    setActiveColId(String(event.active.id));
   }
 
-  function commitRowReorder(trackId: string, dropIndex: number) {
-    const fromIndex = tracks.findIndex((t) => t.id === trackId);
-    if (fromIndex === -1) return;
-    const adjustedDrop = dropIndex > fromIndex ? dropIndex - 1 : dropIndex;
-    if (adjustedDrop === fromIndex) return; // no-op
-    const newOrder = tracks.map((t) => t.id);
-    newOrder.splice(fromIndex, 1);
-    newOrder.splice(adjustedDrop, 0, trackId);
-    onReorder?.(newOrder);
+  function handleColumnDragOver(event: DragOverEvent) {
+    setOverColId(event.over ? String(event.over.id) : null);
   }
 
-  // Px offset to preview a column/row sliding out of the way of an in-flight drag.
-  function computeColumnShiftPx(colIdx: number): number {
-    if (!reorderDrag) return 0;
-    const fromIndex = visibleColumns.findIndex((c) => c.id === reorderDrag.colId);
-    if (fromIndex === -1 || colIdx === fromIndex) return 0;
-    const draggedWidth = visibleColumns[fromIndex].getSize();
-    const dropIdx = reorderDrag.dropIndex;
-    if (fromIndex < dropIdx && colIdx > fromIndex && colIdx < dropIdx) return -draggedWidth;
-    if (fromIndex > dropIdx && colIdx >= dropIdx && colIdx < fromIndex) return draggedWidth;
-    return 0;
+  function handleColumnDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    setActiveColId(null);
+    setOverColId(null);
+    if (!over || active.id === over.id) return;
+    const visibleIds = visibleColumns.map((c) => c.id);
+    const oldIndex = visibleIds.indexOf(String(active.id));
+    const newIndex = visibleIds.indexOf(String(over.id));
+    if (oldIndex === -1 || newIndex === -1) return;
+    const newVisible = arrayMove(visibleIds, oldIndex, newIndex);
+    table.setColumnOrder(reinsertHiddenColumns(newVisible));
   }
 
-  function computeRowShiftPx(rowIdx: number): number {
-    if (!rowDrag) return 0;
-    const fromIndex = tracks.findIndex((t) => t.id === rowDrag.trackId);
-    if (fromIndex === -1 || rowIdx === fromIndex) return 0;
-    const rowHeight = rowReorderRef.current?.rowHeight ?? 37;
-    const dropIdx = rowDrag.dropIndex;
-    if (fromIndex < dropIdx && rowIdx > fromIndex && rowIdx < dropIdx) return -rowHeight;
-    if (fromIndex > dropIdx && rowIdx >= dropIdx && rowIdx < fromIndex) return rowHeight;
-    return 0;
+  function handleColumnDragCancel() {
+    setActiveColId(null);
+    setOverColId(null);
   }
 
-  const dropIndicatorIndex = reorderDrag?.dropIndex ?? null;
+  function handleRowDragStart(event: DragStartEvent) {
+    setActiveRowId(String(event.active.id));
+  }
+
+  function handleRowDragOver(event: DragOverEvent) {
+    setOverRowId(event.over ? String(event.over.id) : null);
+  }
+
+  function handleRowDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    setActiveRowId(null);
+    setOverRowId(null);
+    if (!over || active.id === over.id) return;
+    const trackIds = tracks.map((t) => t.id);
+    const oldIndex = trackIds.indexOf(String(active.id));
+    const newIndex = trackIds.indexOf(String(over.id));
+    if (oldIndex === -1 || newIndex === -1) return;
+    onReorder?.(arrayMove(trackIds, oldIndex, newIndex));
+  }
+
+  function handleRowDragCancel() {
+    setActiveRowId(null);
+    setOverRowId(null);
+  }
+
+  const activeColIndex = activeColId ? visibleColumns.findIndex((c) => c.id === activeColId) : -1;
+  const overColIndex = overColId ? visibleColumns.findIndex((c) => c.id === overColId) : -1;
   const rows = table.getRowModel().rows;
+  const activeRowIndex = activeRowId ? rows.findIndex((r) => r.id === activeRowId) : -1;
+  const overRowIndex = overRowId ? rows.findIndex((r) => r.id === overRowId) : -1;
 
   return (
     <div className="relative w-full h-full overflow-auto">
@@ -238,179 +224,94 @@ export function TrackTable({
         </colgroup>
 
         <thead className="sticky top-0 bg-background z-10 shadow-sm border-b border-border">
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr
-              key={headerGroup.id}
-              ref={headerRowRef}
-              className="text-muted-foreground text-xs font-bold uppercase tracking-wider select-none"
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setHeaderMenuPos({ x: e.clientX, y: e.clientY });
-              }}
-            >
-              {canReorder && <th className="px-1" aria-hidden />}
-              {headerGroup.headers.map((header, colIdx) => {
-                const colId = header.column.id;
-                const isDragging = reorderDrag?.colId === colId;
-                const showDropBefore = dropIndicatorIndex === colIdx;
-                const showDropAfter = dropIndicatorIndex === visibleColumns.length && colIdx === visibleColumns.length - 1;
-                const shiftPx = computeColumnShiftPx(colIdx);
+          <DndContext
+            sensors={columnSensors}
+            onDragStart={handleColumnDragStart}
+            onDragOver={handleColumnDragOver}
+            onDragEnd={handleColumnDragEnd}
+            onDragCancel={handleColumnDragCancel}
+          >
+            <SortableContext items={visibleColumns.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr
+                  key={headerGroup.id}
+                  className="text-muted-foreground text-xs font-bold uppercase tracking-wider select-none"
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setHeaderMenuPos({ x: e.clientX, y: e.clientY });
+                  }}
+                >
+                  {canReorder && <th className="px-1" aria-hidden />}
+                  {headerGroup.headers.map((header) => {
+                    const colId = header.column.id;
+                    const showDropBefore = overColId === colId && overColIndex < activeColIndex;
+                    const showDropAfter = overColId === colId && overColIndex > activeColIndex;
 
-                return (
-                  <th
-                    key={header.id}
-                    className={`relative px-3 py-4 font-medium overflow-hidden ${isDragging ? "opacity-40 outline outline-1 outline-primary" : ""}`}
-                    style={{
-                      position: "relative",
-                      transform: shiftPx ? `translateX(${shiftPx}px)` : undefined,
-                      transition: isDragging ? undefined : SHIFT_TRANSITION,
-                    }}
-                    onPointerDown={(e) => {
-                      if (e.button !== 0) return;
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      reorderRef.current = { colId, startX: e.clientX };
-                      setReorderDrag({ colId, dropIndex: colIdx });
-                    }}
-                    onPointerMove={(e) => {
-                      if (!reorderRef.current || reorderRef.current.colId !== colId) return;
-                      const drop = computeDropIndex(e.clientX);
-                      setReorderDrag({ colId, dropIndex: drop });
-                    }}
-                    onPointerUp={(e) => {
-                      if (!reorderRef.current || reorderRef.current.colId !== colId) return;
-                      const drop = computeDropIndex(e.clientX);
-                      commitReorder(colId, drop);
-                      reorderRef.current = null;
-                      setReorderDrag(null);
-                    }}
-                    onPointerCancel={() => {
-                      if (reorderRef.current?.colId !== colId) return;
-                      reorderRef.current = null;
-                      setReorderDrag(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape" && reorderRef.current?.colId === colId) {
-                        reorderRef.current = null;
-                        setReorderDrag(null);
-                      }
-                    }}
-                  >
-                    {showDropBefore && (
-                      <span
-                        className="absolute left-0 top-0 h-full w-0.5 bg-primary z-20"
-                        style={{ pointerEvents: "none" }}
+                    return (
+                      <SortableHeaderCell
+                        key={header.id}
+                        header={header}
+                        showDropBefore={showDropBefore}
+                        showDropAfter={showDropAfter}
                       />
-                    )}
-                    {showDropAfter && (
-                      <span
-                        className="absolute right-0 top-0 h-full w-0.5 bg-primary z-20"
-                        style={{ pointerEvents: "none" }}
-                      />
-                    )}
-
-                    <span className="truncate block pr-2">
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(header.column.columnDef.header, header.getContext())}
-                    </span>
-
-                    <span
-                      className="absolute right-0 top-0 h-full w-2 cursor-col-resize z-10"
-                      style={{ touchAction: "none" }}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onMouseDown={header.getResizeHandler()}
-                      onTouchStart={header.getResizeHandler()}
-                    />
-                  </th>
-                );
-              })}
-            </tr>
-          ))}
+                    );
+                  })}
+                </tr>
+              ))}
+            </SortableContext>
+          </DndContext>
         </thead>
 
-        <tbody ref={tbodyRef} className="divide-y divide-border/50">
-          {rows.map((row, rowIdx) => {
-            const track = row.original;
-            const isRowDragging = rowDrag?.trackId === track.id;
-            const showDropBefore = rowDrag != null && rowDrag.dropIndex === rowIdx;
-            const showDropAfter =
-              rowDrag != null && rowDrag.dropIndex === rows.length && rowIdx === rows.length - 1;
-            const dropStyle: CSSProperties | undefined = showDropBefore
-              ? { boxShadow: "inset 0 2px 0 0 var(--color-primary)" }
-              : showDropAfter
-                ? { boxShadow: "inset 0 -2px 0 0 var(--color-primary)" }
-                : undefined;
-            const shiftPx = computeRowShiftPx(rowIdx);
+        <DndContext
+          sensors={rowSensors}
+          onDragStart={handleRowDragStart}
+          onDragOver={handleRowDragOver}
+          onDragEnd={handleRowDragEnd}
+          onDragCancel={handleRowDragCancel}
+        >
+          <SortableContext items={rows.map((r) => r.id)} strategy={verticalListSortingStrategy}>
+            <tbody className="divide-y divide-border/50">
+              {rows.map((row) => {
+                const track = row.original;
+                const showDropBefore = overRowId === row.id && overRowIndex < activeRowIndex;
+                const showDropAfter = overRowId === row.id && overRowIndex > activeRowIndex;
+                const dropStyle: CSSProperties | undefined = showDropBefore
+                  ? { boxShadow: "inset 0 2px 0 0 var(--color-primary)" }
+                  : showDropAfter
+                    ? { boxShadow: "inset 0 -2px 0 0 var(--color-primary)" }
+                    : undefined;
 
-            return (
-              <tr
-                key={row.id}
-                onDoubleClick={() => onTrackDoubleClick(track)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setRowMenu({ pos: { x: e.clientX, y: e.clientY }, track });
-                }}
-                className={`hover:bg-muted/30 transition-colors group cursor-pointer ${isRowDragging ? "opacity-40" : ""}`}
-                style={{
-                  transform: shiftPx ? `translateY(${shiftPx}px)` : undefined,
-                  transition: isRowDragging ? undefined : SHIFT_TRANSITION,
-                  position: shiftPx ? "relative" : undefined,
-                  zIndex: isRowDragging || shiftPx ? 1 : undefined,
-                }}
-              >
-                {canReorder && (
-                  <td className="px-1 align-middle" style={dropStyle}>
-                    <span
-                      className="inline-flex items-center justify-center text-muted-foreground/50 hover:text-foreground cursor-grab"
-                      style={{ touchAction: "none" }}
-                      onPointerDown={(e) => {
-                        if (e.button !== 0) return;
-                        e.stopPropagation();
-                        e.currentTarget.setPointerCapture(e.pointerId);
-                        const rowHeight = e.currentTarget.closest("tr")?.getBoundingClientRect().height ?? 37;
-                        rowReorderRef.current = { trackId: track.id, startY: e.clientY, rowHeight };
-                        setRowDrag({ trackId: track.id, dropIndex: rowIdx });
-                      }}
-                      onPointerMove={(e) => {
-                        if (!rowReorderRef.current || rowReorderRef.current.trackId !== track.id) return;
-                        const drop = computeRowDropIndex(e.clientY);
-                        setRowDrag({ trackId: track.id, dropIndex: drop });
-                      }}
-                      onPointerUp={(e) => {
-                        if (!rowReorderRef.current || rowReorderRef.current.trackId !== track.id) return;
-                        const drop = computeRowDropIndex(e.clientY);
-                        commitRowReorder(track.id, drop);
-                        rowReorderRef.current = null;
-                        setRowDrag(null);
-                      }}
-                      onPointerCancel={() => {
-                        if (rowReorderRef.current?.trackId !== track.id) return;
-                        rowReorderRef.current = null;
-                        setRowDrag(null);
-                      }}
-                      onDoubleClick={(e) => e.stopPropagation()}
-                      onContextMenu={(e) => e.stopPropagation()}
-                    >
-                      <GripVertical size={14} />
-                    </span>
-                  </td>
-                )}
-                {row.getVisibleCells().map((cell) => {
-                  const align = cell.column.columnDef.meta?.align;
-                  return (
-                    <td
-                      key={cell.id}
-                      className={`px-3 py-2.5 overflow-hidden ${align === "center" ? "text-center" : align === "right" ? "text-right" : ""}`}
-                      style={dropStyle}
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
-        </tbody>
+                return (
+                  <SortableTrackRow
+                    key={row.id}
+                    row={row}
+                    canReorder={canReorder}
+                    showDropBefore={showDropBefore}
+                    showDropAfter={showDropAfter}
+                    onDoubleClick={() => onTrackDoubleClick(track)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setRowMenu({ pos: { x: e.clientX, y: e.clientY }, track });
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const align = cell.column.columnDef.meta?.align;
+                      return (
+                        <td
+                          key={cell.id}
+                          className={`px-3 py-2.5 overflow-hidden ${align === "center" ? "text-center" : align === "right" ? "text-right" : ""}`}
+                          style={dropStyle}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      );
+                    })}
+                  </SortableTrackRow>
+                );
+              })}
+            </tbody>
+          </SortableContext>
+        </DndContext>
       </table>
     </div>
   );

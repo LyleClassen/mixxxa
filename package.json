@@ -16,6 +16,9 @@
   "dependencies": {
     "0xbitnet": "^0.5.2",
     "@base-ui-components/react": "^1.0.0-rc.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@tanstack/react-table": "^8.21.3",
     "@types/ffprobe-static": "^2.0.3",
     "@unimusic/chromaprint": "0.1.4",
