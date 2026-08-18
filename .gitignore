@@ -7,3 +7,11 @@ artifacts/
 # Large model weights
 *.gguf
 __pycache__/
+
+# AI
+.opencode
+.claude
+.agent
+
+# Enviroment Variables
+.env

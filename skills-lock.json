@@ -37,12 +37,6 @@
       "skillPath": ".claude/skills/electrobun-best-practices/SKILL.md",
       "computedHash": "708f261a16aa01e1b0d7a9a0b904dbe6176e864f424515db4f48707cd11dfdf9"
     },
-    "fallow": {
-      "source": "fallow-rs/fallow-skills",
-      "sourceType": "github",
-      "skillPath": "fallow/skills/fallow/SKILL.md",
-      "computedHash": "dd0c88c06654d3c1ed9f3d7dec96e097e023732fe0154ff4df62b0060643cf68"
-    },
     "grill-me": {
       "source": "mattpocock/skills",
       "sourceType": "github",
