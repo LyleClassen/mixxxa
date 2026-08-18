@@ -6,5 +6,8 @@
       "PowerShell(bunx tsc --noEmit)",
       "PowerShell(npx tsc --noEmit)"
     ]
+  },
+  "enabledPlugins": {
+    "mattpocock-skills@mattpocock": true
   }
 }
