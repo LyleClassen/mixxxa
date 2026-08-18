@@ -309,6 +309,7 @@ export type MixxxRPC = {
       getPlaylistTracks: { params: { playlistId: string }; response: Track[] };
       getAllTracks: { params: undefined; response: Track[] };
       reorderPlaylistTracks: { params: { playlistId: string; orderedTrackIds: string[] }; response: Track[] };
+      removeTracksFromPlaylist: { params: { playlistId: string; trackIds: string[] }; response: Track[] };
       getTrackAudioUrl: { params: { trackId: string }; response: GetTrackAudioUrlResult };
       // Waveform
       getWaveformData: { params: { trackId: string }; response: WaveformData | null };

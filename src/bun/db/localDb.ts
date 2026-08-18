@@ -333,6 +333,23 @@ export function reorderPlaylistTracks(
   tx();
 }
 
+// Remove tracks from a playlist. Leaves the seq values of the remaining rows
+// untouched — readPlaylistTracks/reorderPlaylistTracks only rely on relative
+// ASC order, which gaps don't disturb.
+export function removeTracksFromPlaylist(
+  database: Database,
+  playlistId: string,
+  trackIds: string[],
+): void {
+  const del = database.prepare(
+    "DELETE FROM playlist_song WHERE playlist_id = ? AND content_id = ?",
+  );
+  const tx = database.transaction(() => {
+    for (const trackId of trackIds) del.run(playlistId, trackId);
+  });
+  tx();
+}
+
 // ── Write-back read helpers ───────────────────────────────────────────────────
 
 /** Non-folder playlists (lists + smart lists), in tree order. */

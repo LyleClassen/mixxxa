@@ -1,7 +1,7 @@
 import { MasterDb, isRekordboxRunning } from "rbox-js";
 import { existsSync } from "node:fs";
 import type { PlaylistNode, Track } from "../../shared/types";
-import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks, readAllTracks, reorderPlaylistTracks } from "../db/localDb";
+import { getDb, replaceLibrary, readPlaylistTree, readPlaylistTracks, readAllTracks, reorderPlaylistTracks, removeTracksFromPlaylist } from "../db/localDb";
 import { getAudioServerPort } from "../audioServer";
 import { CUE_COLOR_TABLE } from "../../shared/cueColors";
 import { getDefaultMasterDbPath, makeSyncError } from "./rekordboxShared";
@@ -175,6 +175,12 @@ export const rekordboxHandlers = {
   reorderPlaylistTracks: async ({ playlistId, orderedTrackIds }: { playlistId: string; orderedTrackIds: string[] }): Promise<Track[]> => {
     const db = getDb(dataDir);
     reorderPlaylistTracks(db, playlistId, orderedTrackIds);
+    return readPlaylistTracks(db, playlistId);
+  },
+
+  removeTracksFromPlaylist: async ({ playlistId, trackIds }: { playlistId: string; trackIds: string[] }): Promise<Track[]> => {
+    const db = getDb(dataDir);
+    removeTracksFromPlaylist(db, playlistId, trackIds);
     return readPlaylistTracks(db, playlistId);
   },
 

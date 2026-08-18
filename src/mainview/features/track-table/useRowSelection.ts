@@ -46,6 +46,14 @@ export function useRowSelection(rowIds: string[], clearKey: string | null) {
     setFocusedId(id);
   }
 
+  // Right-click on a row outside the current selection replaces the
+  // selection with just that row (Explorer/Finder convention).
+  function selectOnly(id: string) {
+    setSelectedIds(new Set([id]));
+    setAnchorId(id);
+    setFocusedId(id);
+  }
+
   function handleRowMouseDown(e: MouseEvent) {
     // Shift-click for range-select shouldn't trigger native text selection.
     if (e.shiftKey) e.preventDefault();
@@ -87,5 +95,6 @@ export function useRowSelection(rowIds: string[], clearKey: string | null) {
     handleRowClick,
     handleRowMouseDown,
     handleKeyDown,
+    selectOnly,
   };
 }

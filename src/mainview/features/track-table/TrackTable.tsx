@@ -37,6 +37,7 @@ export interface TrackTableProps {
   onAutoCue?: (track: Track) => void;
   onIdentifyTrack?: (track: Track) => void;
   onDiscardPendingMetadata?: (trackId: string) => void;
+  onRemoveFromPlaylist?: (playlistId: string, trackIds: string[]) => void;
   storageKey: string;
   currentPlaylistId: string | null;
   keyNotation: KeyNotation;
@@ -59,6 +60,7 @@ export function TrackTable({
   onAutoCue,
   onIdentifyTrack,
   onDiscardPendingMetadata,
+  onRemoveFromPlaylist,
   storageKey,
   currentPlaylistId,
   keyNotation,
@@ -107,7 +109,7 @@ export function TrackTable({
   const rowSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const [headerMenuPos, setHeaderMenuPos] = useState<{ x: number; y: number } | null>(null);
-  const [rowMenu, setRowMenu] = useState<{ pos: { x: number; y: number }; track: Track } | null>(null);
+  const [rowMenu, setRowMenu] = useState<{ pos: { x: number; y: number }; tracks: Track[] } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const rows = table.getRowModel().rows;
@@ -211,12 +213,13 @@ export function TrackTable({
       {rowMenu && (
         <RowContextMenu
           pos={rowMenu.pos}
-          track={rowMenu.track}
+          tracks={rowMenu.tracks}
           playlistId={currentPlaylistId}
           onAnalyzeTrack={onAnalyzeTrack ?? (() => {})}
           onAnalyzePlaylist={onAnalyzePlaylist ?? (() => {})}
           onAutoCue={onAutoCue}
           onIdentifyTrack={onIdentifyTrack}
+          onRemoveFromPlaylist={onRemoveFromPlaylist}
           onClose={() => setRowMenu(null)}
         />
       )}
@@ -307,7 +310,11 @@ export function TrackTable({
                     onDoubleClick={() => onTrackDoubleClick(track)}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      setRowMenu({ pos: { x: e.clientX, y: e.clientY }, track });
+                      const inSelection = rowSelection.selectedIds.has(row.id);
+                      if (!inSelection) rowSelection.selectOnly(row.id);
+                      const idsForMenu = inSelection ? rowSelection.selectedIds : new Set([row.id]);
+                      const menuTracks = rows.filter((r) => idsForMenu.has(r.id)).map((r) => r.original);
+                      setRowMenu({ pos: { x: e.clientX, y: e.clientY }, tracks: menuTracks });
                     }}
                   >
                     {row.getVisibleCells().map((cell) => {

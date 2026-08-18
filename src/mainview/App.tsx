@@ -296,6 +296,21 @@ function App() {
     }
   }, [selectedPlaylistId]);
 
+  // Optimistically drop the tracks from local state, then write through the
+  // RPC; on failure, reload the authoritative playlist contents.
+  const handleRemoveFromPlaylist = useCallback(async (playlistId: string, trackIds: string[]) => {
+    const idSet = new Set(trackIds);
+    setTracks((prev) => prev.filter((t) => !idSet.has(t.id)));
+    try {
+      await electroview.rpc!.request.removeTracksFromPlaylist({ playlistId, trackIds });
+    } catch {
+      try {
+        const fresh = await electroview.rpc!.request.getPlaylistTracks({ playlistId });
+        setTracks(fresh);
+      } catch {}
+    }
+  }, []);
+
   const handleSetReadinessOverride = useCallback(async (trackId: string, tier: ReadinessTier | null) => {
     const updated = await electroview.rpc!.request.setReadinessOverride({ trackId, tier });
     setTracks((prev) => prev.map((t) => (t.id === trackId ? updated : t)));
@@ -687,6 +702,7 @@ function App() {
                     onAutoCue={handleAutoCue}
                     onIdentifyTrack={handleIdentifyTrack}
                     onDiscardPendingMetadata={handleDiscardPendingMetadata}
+                    onRemoveFromPlaylist={handleRemoveFromPlaylist}
                     storageKey="mixxxa.trackTableColumns"
                     currentPlaylistId={selectedPlaylistId === COLLECTION_ID ? null : selectedPlaylistId}
                     keyNotation={analysisSettings.keyNotation}
