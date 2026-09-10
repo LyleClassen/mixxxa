@@ -113,7 +113,7 @@ function App() {
   // ── Toolchain (ffmpeg/ffprobe) health check ─────────────────────────────────
 
   useEffect(() => {
-    electroview.rpc!.request.getToolchainStatus().then(setToolchainStatus).catch(() => {});
+    electroview.rpc!.request.getToolchainStatus().then(setToolchainStatus).catch(() => { });
   }, []);
 
   // ── Initialize analysis worker pool + settings ──────────────────────────────
@@ -134,8 +134,8 @@ function App() {
     });
 
     // Load initial queue + history
-    electroview.rpc!.request.getAnalysisQueue().then(setQueue).catch(() => {});
-    electroview.rpc!.request.getAnalysisHistory().then(setHistory).catch(() => {});
+    electroview.rpc!.request.getAnalysisQueue().then(setQueue).catch(() => { });
+    electroview.rpc!.request.getAnalysisHistory().then(setHistory).catch(() => { });
   }, []);
 
   // Subscribe to queue updates from Bun
@@ -151,14 +151,14 @@ function App() {
       // Refresh history as runs finish so newly-recorded runs (either engine)
       // appear without a reload.
       if (msg.queue.some((i) => i.status === "done" || i.status === "failed")) {
-        electroview.rpc!.request.getAnalysisHistory().then(setHistory).catch(() => {});
+        electroview.rpc!.request.getAnalysisHistory().then(setHistory).catch(() => { });
       }
     };
     anyRpc.addMessageListener("analysisQueueUpdate", handler);
     return () => {
       anyRpc.removeMessageListener("analysisQueueUpdate", handler);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPlaylistId]);
 
   // Subscribe to auto-cue progress, scoped to the track in the modal.
@@ -195,9 +195,9 @@ function App() {
 
   function reloadTracks() {
     if (selectedPlaylistId === COLLECTION_ID) {
-      electroview.rpc!.request.getAllTracks().then(setTracks).catch(() => {});
+      electroview.rpc!.request.getAllTracks().then(setTracks).catch(() => { });
     } else {
-      electroview.rpc!.request.getPlaylistTracks({ playlistId: selectedPlaylistId }).then(setTracks).catch(() => {});
+      electroview.rpc!.request.getPlaylistTracks({ playlistId: selectedPlaylistId }).then(setTracks).catch(() => { });
     }
   }
 
@@ -209,7 +209,7 @@ function App() {
         setPlaylistTree(tree);
         setSyncState("ready");
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }, []);
 
   // ── Load tracks on selection change ────────────────────────────────────────
@@ -293,7 +293,7 @@ function App() {
       try {
         const fresh = await electroview.rpc!.request.getPlaylistTracks({ playlistId });
         setTracks(fresh);
-      } catch {}
+      } catch { }
     }
   }, [selectedPlaylistId]);
 
@@ -314,7 +314,7 @@ function App() {
       try {
         const fresh = await electroview.rpc!.request.getPlaylistTracks({ playlistId });
         setTracks(fresh);
-      } catch {}
+      } catch { }
     }
   }, []);
 
@@ -325,7 +325,7 @@ function App() {
     try {
       const fresh = await electroview.rpc!.request.undoRemoveFromPlaylist({ playlistId, removed });
       if (selectedPlaylistId === playlistId) setTracks(fresh);
-    } catch {}
+    } catch { }
   }, [removalUndo, selectedPlaylistId]);
 
   const handleSetReadinessOverride = useCallback(async (trackId: string, tier: ReadinessTier | null) => {
@@ -454,96 +454,38 @@ function App() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground font-sans selection:bg-primary/30">
+    <div className="flex flex-col h-screen overflow-hidden bg-background text-foreground font-sans selection:bg-primary/30">
 
-      {/* Sidebar */}
-      <aside className="w-64 flex flex-col bg-card border-r border-border shrink-0">
-        <div className="p-6 flex items-center gap-3">
+      {toolchainStatus && !toolchainStatus.ok && !toolchainBannerDismissed && (
+        <div className="flex items-center justify-between gap-4 px-6 py-2 bg-destructive/15 border-b border-destructive/40 text-sm text-destructive shrink-0">
+          <span>
+            {toolchainStatus.ffmpeg == null && toolchainStatus.ffprobe == null
+              ? "ffmpeg and ffprobe were not found — analysis and playback will fail. Run `bun install`, or install ffmpeg on your PATH."
+              : toolchainStatus.ffmpeg == null
+                ? "ffmpeg was not found — analysis will fail. Run `bun install`, or install ffmpeg on your PATH."
+                : "ffprobe was not found — bitrate/duration analysis will fail. Run `bun install`, or install ffprobe on your PATH."}
+          </span>
+          <button
+            onClick={() => setToolchainBannerDismissed(true)}
+            className="text-destructive/70 hover:text-destructive shrink-0 text-lg leading-none"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Header */}
+      <header className="h-16 flex items-center border-b border-border bg-card shrink-0">
+        {/* Logo */}
+        <div className="w-64 h-full flex items-center gap-3 px-6 border-r border-border shrink-0">
           <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground">
             <Disc3 size={24} />
           </div>
           <span className="font-bold text-xl tracking-tight">MIXXXA</span>
         </div>
 
-        {/* Camelot Wheel Placeholder */}
-        <div className="px-6 py-4 flex justify-center">
-          <div className="relative w-48 h-48 rounded-full border-8 border-muted flex items-center justify-center shadow-[0_0_30px_rgba(163,230,53,0.1)]">
-            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-accent/20 to-primary/20 opacity-50 blur-xl"></div>
-            <div className="text-center z-10">
-              <span className="text-2xl font-black text-primary">11B</span>
-              <div className="text-xs text-muted-foreground mt-1">A Major</div>
-            </div>
-            <div className="absolute top-0 left-1/2 w-1 h-full -translate-x-1/2 bg-muted/50 rotate-45"></div>
-            <div className="absolute top-0 left-1/2 w-1 h-full -translate-x-1/2 bg-muted/50 -rotate-45"></div>
-            <div className="absolute top-0 left-1/2 w-1 h-full -translate-x-1/2 bg-muted/50 rotate-90"></div>
-            <div className="absolute top-0 left-1/2 w-1 h-full -translate-x-1/2 bg-muted/50"></div>
-          </div>
-        </div>
-
-        {/* Playlist tree */}
-        <nav className="flex-1 px-4 py-2 space-y-0.5 overflow-y-auto">
-          <button
-            onClick={() => handleSelectPlaylist(COLLECTION_ID)}
-            className={`w-full flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors ${
-              selectedPlaylistId === COLLECTION_ID
-                ? "bg-muted/50 text-foreground border-l-2 border-primary"
-                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-            }`}
-          >
-            <Library size={14} className="shrink-0" />
-            <span className="truncate font-medium">Collection</span>
-          </button>
-
-          {syncState === "idle" && playlistTree.length === 0 && (
-            <p className="px-3 py-2 text-xs text-muted-foreground">
-              Click Sync to load your Rekordbox library.
-            </p>
-          )}
-          {syncState === "loading" && (
-            <p className="px-3 py-2 text-xs text-muted-foreground animate-pulse">
-              Syncing…
-            </p>
-          )}
-          {syncState === "error" && (
-            <p className="px-3 py-2 text-xs text-destructive">
-              {syncErrorMessage()}
-            </p>
-          )}
-          {playlistTree.map((node) => (
-            <PlaylistTreeNode
-              key={node.id}
-              node={node}
-              selectedId={selectedPlaylistId}
-              onSelect={handleSelectPlaylist}
-              onAnalyzePlaylist={handleAnalyzePlaylist}
-            />
-          ))}
-        </nav>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0">
-
-        {toolchainStatus && !toolchainStatus.ok && !toolchainBannerDismissed && (
-          <div className="flex items-center justify-between gap-4 px-6 py-2 bg-destructive/15 border-b border-destructive/40 text-sm text-destructive shrink-0">
-            <span>
-              {toolchainStatus.ffmpeg == null && toolchainStatus.ffprobe == null
-                ? "ffmpeg and ffprobe were not found — analysis and playback will fail. Run `bun install`, or install ffmpeg on your PATH."
-                : toolchainStatus.ffmpeg == null
-                ? "ffmpeg was not found — analysis will fail. Run `bun install`, or install ffmpeg on your PATH."
-                : "ffprobe was not found — bitrate/duration analysis will fail. Run `bun install`, or install ffprobe on your PATH."}
-            </span>
-            <button
-              onClick={() => setToolchainBannerDismissed(true)}
-              className="text-destructive/70 hover:text-destructive shrink-0 text-lg leading-none"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Header Tabs */}
-        <header className="h-16 flex items-center justify-between border-b border-border px-6 bg-card shrink-0">
+        {/* Tabs + actions, aligned with the track list column below */}
+        <div className="flex-1 h-full flex items-center justify-between px-6 min-w-0">
           <div className="flex h-full">
             <button
               onClick={() => setActiveTab("collection")}
@@ -588,11 +530,10 @@ function App() {
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
               <button
                 onClick={() => togglePanel("analysis")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded transition-colors ${
-                  rightPanel === "analysis"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded transition-colors ${rightPanel === "analysis"
                     ? "bg-muted text-foreground"
                     : "hover:text-foreground"
-                }`}
+                  }`}
               >
                 <ListTodo size={14} />
                 ANALYSIS
@@ -602,73 +543,114 @@ function App() {
               </button>
               <button
                 onClick={() => togglePanel("settings")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded transition-colors ${
-                  rightPanel === "settings"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded transition-colors ${rightPanel === "settings"
                     ? "bg-muted text-foreground"
                     : "hover:text-foreground"
-                }`}
+                  }`}
               >
                 <Settings size={14} />
                 SETTINGS
               </button>
             </div>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <div className="flex-1 flex min-h-0">
-          {/* Left: player + track list */}
-          <div className="flex-1 flex flex-col min-w-0">
+      {/* Player Section (full width) */}
+      <section className="p-6 border-b border-border bg-card/50 flex flex-col gap-4 shrink-0">
+        <WaveformPlayer ref={playerRef} track={loadedTrack} onCuesChanged={setCues} />
 
-            {/* Player Section */}
-            <section className="p-6 border-b border-border bg-card/50 flex flex-col gap-4 shrink-0">
-              <WaveformPlayer ref={playerRef} track={loadedTrack} onCuesChanged={setCues} />
-
-              <div className="flex items-end justify-between">
-                <div>
-                  <h2 className="text-2xl font-light tracking-tight mb-2">
-                    {loadedTrack
-                      ? `${loadedTrack.artist ? loadedTrack.artist + " – " : ""}${loadedTrack.title || "Unknown"}`
-                      : "No track loaded"}
-                  </h2>
-                  <div className="flex items-center gap-6 text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Key</span>
-                      {loadedTrack?.key ? (
-                        <span className="bg-key-cyan text-black px-2 py-0.5 rounded text-xs font-bold">{displayKey(loadedTrack.key, analysisSettings.keyNotation)}</span>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">BPM</span>
-                      {loadedTrack?.bpm != null ? (
-                        <span className="bg-muted px-2 py-0.5 rounded text-xs font-medium border border-border">{loadedTrack.bpm}</span>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 ml-4 border-l border-border pl-6">
-                      <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Hot Cues</span>
-                      <div className="w-48">
-                        <HotCueGrid
-                          cues={cues}
-                          onJump={handleCueJump}
-                          onSet={handleCueSet}
-                          onDelete={handleCueDelete}
-                          disabled={!loadedTrack}
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 ml-4 border-l border-border pl-6">
-                      <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Virtual Piano</span>
-                      <button className="p-1 hover:text-primary transition-colors"><Piano size={18} /></button>
-                    </div>
-                  </div>
+        <div className="flex items-end justify-between">
+          <div>
+            <h2 className="text-2xl font-light tracking-tight mb-2">
+              {loadedTrack
+                ? `${loadedTrack.artist ? loadedTrack.artist + " – " : ""}${loadedTrack.title || "Unknown"}`
+                : "No track loaded"}
+            </h2>
+            <div className="flex items-center gap-6 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Key</span>
+                {loadedTrack?.key ? (
+                  <span className="bg-key-cyan text-black px-2 py-0.5 rounded text-xs font-bold">{displayKey(loadedTrack.key, analysisSettings.keyNotation)}</span>
+                ) : (
+                  <span className="text-muted-foreground text-xs">—</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">BPM</span>
+                {loadedTrack?.bpm != null ? (
+                  <span className="bg-muted px-2 py-0.5 rounded text-xs font-medium border border-border">{loadedTrack.bpm}</span>
+                ) : (
+                  <span className="text-muted-foreground text-xs">—</span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 ml-4 border-l border-border pl-6">
+                <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Hot Cues</span>
+                <div className="w-48">
+                  <HotCueGrid
+                    cues={cues}
+                    onJump={handleCueJump}
+                    onSet={handleCueSet}
+                    onDelete={handleCueDelete}
+                    disabled={!loadedTrack}
+                  />
                 </div>
               </div>
-            </section>
+              <div className="flex items-center gap-2 ml-4 border-l border-border pl-6">
+                <span className="text-muted-foreground text-xs font-bold uppercase tracking-wider">Virtual Piano</span>
+                <button className="p-1 hover:text-primary transition-colors"><Piano size={18} /></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-            {/* Track List */}
+      <div className="flex-1 flex min-h-0">
+        {/* Sidebar: playlist tree */}
+        <aside className="w-64 flex flex-col bg-card border-r border-border shrink-0">
+          <nav className="flex-1 px-4 py-2 space-y-0.5 overflow-y-auto">
+            <button
+              onClick={() => handleSelectPlaylist(COLLECTION_ID)}
+              className={`w-full flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors ${selectedPlaylistId === COLLECTION_ID
+                  ? "bg-muted/50 text-foreground border-l-2 border-primary"
+                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                }`}
+            >
+              <Library size={14} className="shrink-0" />
+              <span className="truncate font-medium">Collection</span>
+            </button>
+
+            {syncState === "idle" && playlistTree.length === 0 && (
+              <p className="px-3 py-2 text-xs text-muted-foreground">
+                Click Sync to load your Rekordbox library.
+              </p>
+            )}
+            {syncState === "loading" && (
+              <p className="px-3 py-2 text-xs text-muted-foreground animate-pulse">
+                Syncing…
+              </p>
+            )}
+            {syncState === "error" && (
+              <p className="px-3 py-2 text-xs text-destructive">
+                {syncErrorMessage()}
+              </p>
+            )}
+            {playlistTree.map((node) => (
+              <PlaylistTreeNode
+                key={node.id}
+                node={node}
+                selectedId={selectedPlaylistId}
+                onSelect={handleSelectPlaylist}
+                onAnalyzePlaylist={handleAnalyzePlaylist}
+              />
+            ))}
+          </nav>
+        </aside>
+
+        {/* Right of sidebar: track list + right panel */}
+        <div className="flex-1 flex min-h-0">
+          {/* Track List */}
+          <div className="flex-1 flex flex-col min-w-0">
             <section className="flex-1 flex flex-col min-h-0 bg-background">
               <div className="px-6 py-3 border-b border-border flex items-center justify-between shrink-0">
                 <div className="relative w-64">
@@ -774,8 +756,7 @@ function App() {
             </aside>
           )}
         </div>
-
-      </main>
+      </div>
 
       {autoCueModalTrack && (
         <AutoCueModal
