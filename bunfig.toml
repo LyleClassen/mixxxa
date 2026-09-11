@@ -1,0 +1,6 @@
+# Pinned rather than inherited: the Bun version is tracked continuously and is
+# deliberately not pinned, so a future change to the default linker would
+# silently re-lay-out node_modules. Combined with Electrobun's soft-failing
+# asset copy that is how a broken installer ships. See issue #45.
+[install]
+linker = "isolated"

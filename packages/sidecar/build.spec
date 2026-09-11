@@ -1,9 +1,10 @@
 # PyInstaller spec for the ORBIT sidecar frozen binary.
 #
-# Build: cd sidecar && uv run pyinstaller build.spec
-# Output: sidecar/dist/orbit-sidecar[.exe]
+# Build: bun run build:sidecar (from the workspace root), or `uv run pyinstaller
+#        build.spec` from this directory.
+# Output: packages/sidecar/dist/orbit-sidecar[.exe]
 #
-# Copy the output binary to Resources/app/bun/orbit-sidecar[.exe] for packaged builds.
+# electrobun.config.ts copies that binary into the bundle; there is no manual step.
 #
 # librosa, numba, and sklearn all miss data files when frozen without explicit
 # --collect-all. This spec passes them explicitly so the frozen exe can import them.

@@ -380,6 +380,29 @@ wheels = [
 ]
 
 [[package]]
+name = "mixxxa-sidecar"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "joblib" },
+    { name = "orbit-dsp" },
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "xgboost" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "joblib", specifier = ">=1.3" },
+    { name = "orbit-dsp", specifier = "==1.0.1" },
+    { name = "pandas", specifier = ">=2.0" },
+    { name = "scikit-learn", specifier = ">=1.3" },
+    { name = "xgboost", specifier = ">=2.0" },
+]
+
+[[package]]
 name = "msgpack"
 version = "1.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -664,29 +687,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d9/90/e1354942f1ec6de5b92da6ab2e49970aff124dbfe1c07959e6ef0a120456/orbit_dsp-1.0.1.tar.gz", hash = "sha256:8040e2b493c8051eadc1c7eb23c36eec12330b0efa42ad6250aadc2eb12dd64a", size = 7634, upload-time = "2026-06-02T13:45:18.508Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7f/84/deba2c878557b01b419f6617bee4e7f888dfa44e480c246c7ec8bd46b8d2/orbit_dsp-1.0.1-py3-none-any.whl", hash = "sha256:6786d78b8f3880d3ecb1e9d0ad4c07b705c0b78729c78fe82f7e36a5e9d85f3d", size = 7868, upload-time = "2026-06-02T13:45:15.985Z" },
-]
-
-[[package]]
-name = "orbit-sidecar"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "joblib" },
-    { name = "orbit-dsp" },
-    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "xgboost" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "joblib", specifier = ">=1.3" },
-    { name = "orbit-dsp", specifier = "==1.0.1" },
-    { name = "pandas", specifier = ">=2.0" },
-    { name = "scikit-learn", specifier = ">=1.3" },
-    { name = "xgboost", specifier = ">=2.0" },
 ]
 
 [[package]]

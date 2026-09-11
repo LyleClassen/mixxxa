@@ -12,7 +12,7 @@ const PHASE_LABELS: Record<string, string> = {
 };
 
 // ORBIT reports a single 0..1 progress with the sub-step encoded at fixed
-// fractions (see sidecar/main.py analyze): decoding 0.0 → bpm 0.4 → key 0.65 →
+// fractions (see packages/sidecar/main.py analyze): decoding 0.0 → bpm 0.4 → key 0.65 →
 // features 0.9. Derive the running-process label from that pct so the queue row
 // shows the current step instead of a generic "ORBIT".
 function orbitStepLabel(pct: number): string {

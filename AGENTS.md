@@ -18,9 +18,13 @@ each domain concept, and the words we've decided not to use.
 
 ## Dev workflows
 
+Every command below is run from the **repo root**, where the scripts are thin
+`bun run --filter` passthroughs to the member that owns the work.
+
 - `bun run dev` — Electrobun watch mode, no Vite HMR (uses bundled assets).
 - `bun run dev:hmr` — runs Vite (`:5173`) and Electrobun concurrently. The
-  bun process detects the dev server in [src/bun/index.ts](src/bun/index.ts)
+  bun process detects the dev server in
+  [apps/mixxxa/src/bun/index.ts](apps/mixxxa/src/bun/index.ts)
   and points the WebView at it.
 - `bun run start` — one-shot `vite build && electrobun dev`.
 
@@ -63,8 +67,9 @@ the patch and the `patchedDependencies` entry.
 
 ## Build output layout
 
-Electrobun produces a per-platform bundle under
-`build/dev-<platform>-<arch>/<app-name>-dev/`:
+Electrobun writes its build tree relative to its own working directory, so the
+per-platform bundle lands under
+`apps/mixxxa/build/dev-<platform>-<arch>/<app-name>-dev/`:
 
 - `bin/launcher.exe` — entry binary. Running this directly skips the
   `electrobun dev` rebuild step and is useful for testing a patched
@@ -78,14 +83,18 @@ Electrobun produces a per-platform bundle under
 
 ### 1. `ffmpeg` binary
 
-`ffmpeg-static` is listed as an npm dependency and ships a platform `ffmpeg` binary at:
-```
-node_modules/ffmpeg-static/ffmpeg.exe  (Windows)
-node_modules/ffmpeg-static/ffmpeg      (Mac/Linux)
-```
-`src/bun/analysis/decoder.ts` imports the path via `import ffmpegPath from 'ffmpeg-static'`.
+`ffmpeg-static` is an app dependency and ships one platform `ffmpeg` binary.
+Never hardcode a `node_modules/...` path to it: under the isolated linker the
+resolved version is part of that path. Resolve the package instead.
+`apps/mixxxa/src/bun/analysis/decoder.ts` imports the path via `import ffmpegPath from 'ffmpeg-static'`.
 
-**Electrobun bundling caveat:** The Bun bundler inlines `ffmpeg-static`'s path string, but does NOT copy the binary into the app bundle. When building for distribution (`bun run build:canary`) you must arrange to ship the binary alongside the bundle (e.g., copy to `Resources/app/bun/ffmpeg.exe`) and adjust the path resolution in `decoder.ts`. During development (`bun run dev:hmr`) the path in `node_modules/` works as-is.
+**Electrobun bundling caveat:** The Bun bundler inlines the path string but does
+NOT copy the binary into the app bundle, so `electrobun.config.ts` stages it via
+`build.copy`. Those keys must stay relative — Electrobun re-joins each one onto
+its working directory, and an absolute key silently produces a nonsense path
+that the copy loop only logs and skips, shipping a broken installer with a zero
+exit code. Resolve the package, then relativise against `process.cwd()`. During
+development the resolved path works as-is.
 
 ### 2. Analysis engines
 
@@ -98,29 +107,38 @@ Audio decoded to 44.1 kHz mono PCM in Bun and served over `GET /pcm/{itemId}`.
 Produces Key, BPM, Energy, Loudness (dBFS), Dynamic Range, and Danceability in
 one `analyzeOrbit()` call — structurally identical to the bitrate ffprobe path
 (completes without ever claiming a renderer worker). Key + mode from ORBIT are
-normalized to Camelot notation via the shared `src/shared/camelot.ts` map.
+normalized to Camelot notation via the shared
+`apps/mixxxa/src/shared/camelot.ts` map.
 
 ### 3. ORBIT Python sidecar
 
-Location: `sidecar/` (uv project, `orbit-dsp==1.0.1`).
+Location: `packages/sidecar/` — the workspace member `@mixxxa/sidecar` (uv
+project, `orbit-dsp==1.0.1`). The package owns `setup` and `build`; the root's
+`setup:python` and `build:sidecar` are `bun run --filter` aliases, so the path
+lives only in the workspace glob.
 
 **Dev workflow:**
 1. `bun run setup:python` — installs the Python venv via `uv sync`.
-2. Sidecar auto-starts on first ORBIT analysis request (`src/bun/analysis/sidecar.ts`).
+2. Sidecar auto-starts on first ORBIT analysis request
+   (`apps/mixxxa/src/bun/analysis/sidecar.ts`), which finds the package by
+   resolving `@mixxxa/sidecar/package.json` rather than by walking the tree.
    Process is kept warm between requests (librosa startup ~2s paid once).
 3. Manual test: pipe `{"id":"1","filePath":"<some.mp3>","maxLength":120}\n`
-   to `uv run python sidecar/main.py` and confirm one id-correlated JSON result.
+   to `uv run python packages/sidecar/main.py` and confirm one id-correlated
+   JSON result.
 
 **Build for distribution:**
-1. `bun run build:sidecar` — runs PyInstaller via `sidecar/build.spec`.
-   Output: `sidecar/dist/orbit-sidecar[.exe]` (~200–400 MB).
-2. Copy the exe to `Resources/app/bun/orbit-sidecar[.exe]` before packaging.
-   `sidecar.ts` checks for the exe next to the bundle; falls back to `uv run` in dev.
+1. `bun run build:sidecar` — runs PyInstaller via `packages/sidecar/build.spec`.
+   Output: `packages/sidecar/dist/orbit-sidecar[.exe]` (~200–400 MB).
+2. No manual copy. `electrobun.config.ts` stages that binary into the bundle as
+   a `build.copy` entry, so a fresh checkout that has never built the sidecar
+   logs one `failed to copy` line per dev run. `sidecar.ts` checks for the exe
+   next to the bundle; falls back to `uv run` in dev.
 
 **Windows note:** Windows wheels exist for librosa/numpy/scipy (unlike essentia),
 so the frozen binary is viable on Windows.
 
-**PyInstaller note:** `sidecar/build.spec` uses `collect_all()` for librosa, numba,
+**PyInstaller note:** `packages/sidecar/build.spec` uses `collect_all()` for librosa, numba,
 sklearn, and scipy to capture data files that PyInstaller misses otherwise.
 Test the frozen exe standalone before wiring into the full app build.
 
@@ -151,10 +169,13 @@ the view.
 
 ## Workspace packages
 
-> Describes the layout that [#44](https://github.com/LyleClassen/mixxxa/issues/44)
-> puts in place. Until that lands, the repo is still single-package and
-> `packages/` does not exist. Convention settled in
-> [#41](https://github.com/LyleClassen/mixxxa/issues/41).
+> The layout below is in place on this branch, but the move
+> ([#44](https://github.com/LyleClassen/mixxxa/issues/44)) has **not** merged:
+> Electrobun 1.18.1's compiled CLI cannot resolve the app's dependencies when it
+> runs from `apps/mixxxa`, so `bun run build:canary` and `electrobun dev` do not
+> work from the app directory yet. Conventions settled in
+> [#41](https://github.com/LyleClassen/mixxxa/issues/41) and
+> [#42](https://github.com/LyleClassen/mixxxa/issues/42).
 
 `apps/` holds the Electrobun app. `packages/` holds everything else,
 whatever language it is written in — the Python sidecar included. Every
@@ -267,7 +288,7 @@ Single-context — `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents
   it with `fetch(..., { method: 'HEAD' })` and falls back to bundled
   assets if it isn't up. Don't expect HMR to "just work" if Vite hasn't
   started yet.
-- `electrobun dev` re-bundles `src/bun/**` on every restart, so any
+- `electrobun dev` re-bundles `apps/mixxxa/src/bun/**` on every restart, so any
   manual edits to `Resources/app/bun/index.js` are wiped. Test fixes by
   running `build/.../bin/launcher.exe` directly if you need to bypass
   the rebuild.
