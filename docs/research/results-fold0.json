@@ -1,0 +1,358 @@
+{
+  "import_s": 2.33,
+  "cache_dir": "C:\\Users\\TDK_Rage\\.cache\\torch\\hub\\checkpoints",
+  "runs": [
+    {
+      "model": "harmonix-fold0",
+      "label": "3min",
+      "track_seconds": 180,
+      "cold": true,
+      "analyze_s": 71.88,
+      "end_to_end_s": 71.88,
+      "realtime_factor": 0.4,
+      "phases_s": {
+        "ffmpeg_decode_to_wav": 0.0,
+        "demucs_separation": 54.08,
+        "spectrogram": 1.98,
+        "model_load": 0.4,
+        "structure_inference": 15.41
+      },
+      "unaccounted_s": 0.0,
+      "peak_rss_mb": 3848.9,
+      "bpm": 109,
+      "n_segments": 9,
+      "n_downbeats": 84,
+      "n_beats": 333,
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 0.31,
+          "label": "start"
+        },
+        {
+          "start": 0.31,
+          "end": 17.75,
+          "label": "intro"
+        },
+        {
+          "start": 17.75,
+          "end": 37.39,
+          "label": "verse"
+        },
+        {
+          "start": 37.39,
+          "end": 63.57,
+          "label": "verse"
+        },
+        {
+          "start": 63.57,
+          "end": 89.76,
+          "label": "verse"
+        },
+        {
+          "start": 89.76,
+          "end": 119.22,
+          "label": "chorus"
+        },
+        {
+          "start": 119.22,
+          "end": 151.94,
+          "label": "inst"
+        },
+        {
+          "start": 151.94,
+          "end": 173.76,
+          "label": "verse"
+        },
+        {
+          "start": 173.76,
+          "end": 180.55,
+          "label": "chorus"
+        }
+      ]
+    },
+    {
+      "model": "harmonix-fold0",
+      "label": "5.5min",
+      "track_seconds": 330,
+      "cold": false,
+      "analyze_s": 132.92,
+      "end_to_end_s": 132.93,
+      "realtime_factor": 0.4,
+      "phases_s": {
+        "ffmpeg_decode_to_wav": 0.01,
+        "demucs_separation": 100.45,
+        "spectrogram": 3.48,
+        "model_load": 0.32,
+        "structure_inference": 28.66
+      },
+      "unaccounted_s": 0.01,
+      "peak_rss_mb": 6417.0,
+      "bpm": 111,
+      "n_segments": 21,
+      "n_downbeats": 132,
+      "n_beats": 527,
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 0.07,
+          "label": "start"
+        },
+        {
+          "start": 0.07,
+          "end": 16.93,
+          "label": "intro"
+        },
+        {
+          "start": 16.93,
+          "end": 35.68,
+          "label": "intro"
+        },
+        {
+          "start": 35.68,
+          "end": 50.43,
+          "label": "verse"
+        },
+        {
+          "start": 50.43,
+          "end": 69.96,
+          "label": "verse"
+        },
+        {
+          "start": 69.96,
+          "end": 85.8,
+          "label": "chorus"
+        },
+        {
+          "start": 85.8,
+          "end": 102.64,
+          "label": "chorus"
+        },
+        {
+          "start": 102.64,
+          "end": 121.35,
+          "label": "verse"
+        },
+        {
+          "start": 121.35,
+          "end": 137.22,
+          "label": "chorus"
+        },
+        {
+          "start": 137.22,
+          "end": 154.34,
+          "label": "verse"
+        },
+        {
+          "start": 154.34,
+          "end": 171.21,
+          "label": "verse"
+        },
+        {
+          "start": 171.21,
+          "end": 189.96,
+          "label": "chorus"
+        },
+        {
+          "start": 189.96,
+          "end": 206.05,
+          "label": "inst"
+        },
+        {
+          "start": 206.05,
+          "end": 224.21,
+          "label": "verse"
+        },
+        {
+          "start": 224.21,
+          "end": 240.07,
+          "label": "chorus"
+        },
+        {
+          "start": 240.07,
+          "end": 257.21,
+          "label": "chorus"
+        },
+        {
+          "start": 257.21,
+          "end": 275.63,
+          "label": "verse"
+        },
+        {
+          "start": 275.63,
+          "end": 292.83,
+          "label": "chorus"
+        },
+        {
+          "start": 292.83,
+          "end": 310.74,
+          "label": "outro"
+        },
+        {
+          "start": 310.74,
+          "end": 330.86,
+          "label": "outro"
+        },
+        {
+          "start": 330.86,
+          "end": 330.87,
+          "label": "end"
+        }
+      ]
+    },
+    {
+      "model": "harmonix-fold0",
+      "label": "8min",
+      "track_seconds": 480,
+      "cold": false,
+      "analyze_s": 191.04,
+      "end_to_end_s": 191.04,
+      "realtime_factor": 0.4,
+      "phases_s": {
+        "ffmpeg_decode_to_wav": 0.0,
+        "demucs_separation": 143.99,
+        "spectrogram": 5.01,
+        "model_load": 0.32,
+        "structure_inference": 41.71
+      },
+      "unaccounted_s": 0.01,
+      "peak_rss_mb": 10012.4,
+      "bpm": 111,
+      "n_segments": 26,
+      "n_downbeats": 200,
+      "n_beats": 799,
+      "segments": [
+        {
+          "start": 0.0,
+          "end": 0.11,
+          "label": "start"
+        },
+        {
+          "start": 0.11,
+          "end": 13.48,
+          "label": "intro"
+        },
+        {
+          "start": 13.48,
+          "end": 34.92,
+          "label": "intro"
+        },
+        {
+          "start": 34.92,
+          "end": 52.05,
+          "label": "intro"
+        },
+        {
+          "start": 52.05,
+          "end": 69.21,
+          "label": "verse"
+        },
+        {
+          "start": 69.21,
+          "end": 85.01,
+          "label": "verse"
+        },
+        {
+          "start": 85.01,
+          "end": 102.95,
+          "label": "verse"
+        },
+        {
+          "start": 102.95,
+          "end": 120.11,
+          "label": "chorus"
+        },
+        {
+          "start": 120.11,
+          "end": 137.25,
+          "label": "chorus"
+        },
+        {
+          "start": 137.25,
+          "end": 169.88,
+          "label": "verse"
+        },
+        {
+          "start": 169.88,
+          "end": 190.29,
+          "label": "chorus"
+        },
+        {
+          "start": 190.29,
+          "end": 205.04,
+          "label": "inst"
+        },
+        {
+          "start": 205.04,
+          "end": 222.17,
+          "label": "inst"
+        },
+        {
+          "start": 222.17,
+          "end": 242.52,
+          "label": "bridge"
+        },
+        {
+          "start": 242.52,
+          "end": 257.25,
+          "label": "break"
+        },
+        {
+          "start": 257.25,
+          "end": 293.68,
+          "label": "verse"
+        },
+        {
+          "start": 293.68,
+          "end": 310.82,
+          "label": "chorus"
+        },
+        {
+          "start": 310.82,
+          "end": 325.03,
+          "label": "inst"
+        },
+        {
+          "start": 325.03,
+          "end": 342.16,
+          "label": "inst"
+        },
+        {
+          "start": 342.16,
+          "end": 358.5,
+          "label": "chorus"
+        },
+        {
+          "start": 358.5,
+          "end": 388.31,
+          "label": "outro"
+        },
+        {
+          "start": 388.31,
+          "end": 404.41,
+          "label": "bridge"
+        },
+        {
+          "start": 404.41,
+          "end": 423.52,
+          "label": "solo"
+        },
+        {
+          "start": 423.52,
+          "end": 438.38,
+          "label": "intro"
+        },
+        {
+          "start": 438.38,
+          "end": 480.09,
+          "label": "chorus"
+        },
+        {
+          "start": 480.09,
+          "end": 480.1,
+          "label": "end"
+        }
+      ]
+    }
+  ]
+}

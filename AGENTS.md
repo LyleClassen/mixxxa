@@ -3,6 +3,9 @@
 Notes for AI coding agents working in this repository. Keep this short and
 high-signal — drop anything that becomes obvious from the code.
 
+See [CONTEXT.md](CONTEXT.md) for the project's glossary — the agreed word for
+each domain concept, and the words we've decided not to use.
+
 ## Stack
 
 - **Runtime/bundler:** Bun (CJS+ESM mixed). The bun-process entry is
