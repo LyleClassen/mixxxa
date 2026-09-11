@@ -149,6 +149,89 @@ from the bun process (see `autoCueProgress`/`analysisQueueUpdate` in
 [src/bun/index.ts](src/bun/index.ts)) — and render a determinate indicator in
 the view.
 
+## Workspace packages
+
+> Describes the layout that [#44](https://github.com/LyleClassen/mixxxa/issues/44)
+> puts in place. Until that lands, the repo is still single-package and
+> `packages/` does not exist. Convention settled in
+> [#41](https://github.com/LyleClassen/mixxxa/issues/41).
+
+`apps/` holds the Electrobun app. `packages/` holds everything else,
+whatever language it is written in — the Python sidecar included. Every
+member is scoped `@mixxxa/<name>`, so the workspace name and the
+published name are the same string and nothing gets renamed on the day
+something first ships.
+
+Two kinds of member live under `packages/`, and the only structural
+difference between them is the `private` field:
+
+- **Internal package** — `"private": true`. Exists to organise the repo.
+  `@mixxxa/sidecar` is the only one today.
+- **Publishable package** — no `private` field. Goes to npm.
+
+### Adding a publishable package
+
+Same `packages/*` glob as an internal one; do not invent a second
+directory for "the ones that ship". A package that changes status should
+change one field, not move.
+
+Its `package.json` needs, beyond the usual:
+
+```jsonc
+{
+  "name": "@mixxxa/<name>",
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "publishConfig": { "access": "public" },
+  "scripts": { "build": "tsc -p tsconfig.json" }
+}
+```
+
+`publishConfig.access` is load-bearing: scoped packages default to
+restricted, and npm rejects the publish rather than warning.
+
+It also needs **its own standalone `tsconfig.json` — no `extends`**. The
+root config is the app's config that happens to sit at the root, not a
+shared base: it sets `noEmit`, turns on `allowImportingTsExtensions`
+(which TypeScript refuses alongside emit), pulls in DOM libs and
+`react-jsx`, and defines a `@/*` alias into the app's view layer that a
+package must never use. So set `noEmit: false`, `declaration: true` and
+`outDir: "dist"` in a config of its own. If a genuine shared base is ever
+wanted, that is a `tsconfig.base.json`, and nobody needs one yet.
+
+**Publishing TypeScript source directly is not the convention.** It works
+only while every consumer is Bun, which is exactly the assumption a
+package leaving this repo stops being able to make.
+
+### Dependency direction
+
+One way. `apps/mixxxa` may depend on any package; **no package may ever
+depend on `apps/mixxxa`**. A published package that imports from the app
+is unpublishable by construction. Package-to-package dependencies are
+fine — that is what the workspace is for.
+
+Nothing enforces this. There is no CI in this repo, and a check script
+with nothing to run it is decoration. With one app and one package the
+rule is hard to break by accident; revisit if either number grows.
+
+### The `@mixxxa` scope is unverified
+
+Nobody has registered the `mixxxa` org on npm, and registering it was
+deliberately not done. Whoever publishes first must check the scope is
+still available and pick a fallback if it is gone. The internal packages
+do not care either way, since a private package's name never reaches the
+registry.
+
+### Deliberately deferred
+
+Considered and left until there is something real to publish, not
+forgotten:
+
+- **Changesets**, and any versioning policy at all.
+- **npm auth** — no token, no org, no `.npmrc`.
+- **A release job** — there is no CI to hang one off.
+
 ## Agent skills
 
 ### Issue tracker

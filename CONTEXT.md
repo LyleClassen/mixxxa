@@ -90,3 +90,13 @@ _Avoid_: Hash, signature, checksum
 **Identify**:
 Resolving a track's real metadata by submitting its fingerprint to AcoustID and reviewing the ranked MusicBrainz candidates. Always user-reviewed; never applied silently.
 _Avoid_: Match, tag, lookup, recognise
+
+## Repository
+
+**Internal Package**:
+A workspace member that exists to organise this repo and is never published. Marked `private` in its manifest. `@mixxxa/sidecar` is the only one.
+_Avoid_: Private package, local package, module
+
+**Publishable Package**:
+A workspace member intended to leave this repo and be installed by something outside it. Structurally an Internal Package without the `private` marking. None exists yet; the ability to add one is why the workspace exists.
+_Avoid_: Public package, library, shared package, npm module
