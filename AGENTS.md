@@ -158,9 +158,24 @@ the view.
 
 `apps/` holds the Electrobun app. `packages/` holds everything else,
 whatever language it is written in — the Python sidecar included. Every
-member is scoped `@mixxxa/<name>`, so the workspace name and the
-published name are the same string and nothing gets renamed on the day
-something first ships.
+member under `packages/` is scoped `@mixxxa/<name>`, so the workspace
+name and the published name are the same string and nothing gets renamed
+on the day something first ships.
+
+### Names
+
+Three tiers, and only the third is scoped. The root manifest is
+`mixxxa-workspace`, `"private": true` — orchestration only, never
+published and never imported. The app is `mixxxa`, unscoped, because it
+is the product rather than a candidate for npm. Packages are
+`@mixxxa/<name>`. Settled in
+[#42](https://github.com/LyleClassen/mixxxa/issues/42).
+
+The root declares **no ordinary dependencies**. Everything the app
+imports is declared by the app; the root manifest carries only
+`workspaces`, `patchedDependencies`, `trustedDependencies` and
+orchestration scripts. A root devDependency that nothing at the root
+imports is the phantom dependency the isolated linker exists to prevent.
 
 Two kinds of member live under `packages/`, and the only structural
 difference between them is the `private` field:
