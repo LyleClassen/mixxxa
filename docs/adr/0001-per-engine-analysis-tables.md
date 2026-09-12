@@ -1,0 +1,7 @@
+# Split analysis results into one table per engine, not one shared table with an engine column
+
+Today every engine writes into the same wide `content` columns (`analyzed_bpm`, `analyzed_key`, etc.), guarded by a `COALESCE(?, col)` write so one engine's write never clobbers another engine's prior value in the same column. This works, but it means the two engines' results for the same aspect (e.g. BPM) are indistinguishable once written — there's no way to compare orbit's BPM against essentia's BPM for a track, only "the current value."
+
+We're replacing this with one table per engine (`orbit_analysis`, `essentia_analysis`), each holding that engine's own scalar aspects, one row per track, FK'd to `content` with `ON DELETE CASCADE`. Engine-independent facts (bitrate, fingerprint, waveform, readiness, status) move to a separate `analysis_state` table rather than either engine table, since they belong to neither.
+
+This was chosen over keeping one shared table (with an `engine` discriminator column, or the existing per-column COALESCE approach) because the destination for this schema change is explicitly to enable later cross-engine comparison — a single current-value column can never support that, no matter how it's keyed. The trade-off: this drops the COALESCE safety net entirely, but that net existed only to prevent two engines from clobbering each other's writes to the *same* column — a problem that no longer exists once each engine owns its own table.

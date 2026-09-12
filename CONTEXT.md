@@ -50,6 +50,18 @@ _Avoid_: Step, stage, state
 How many queue items may run concurrently. A user setting, not a fixed property — and some aspects are constrained below it by their own resource cost.
 _Avoid_: Concurrency, thread count, workers
 
+**Analysis Table**:
+An engine's own table (`orbit_analysis`, `essentia_analysis`) holding that engine's current scalar aspect values for a track — one row per track, overwritten on every re-run. Never shared between engines, even for an aspect both can produce (e.g. both engines write their own BPM); nothing declares one engine's value "the" value for a track.
+_Avoid_: Results table, output table, metrics table
+
+**Analysis State**:
+The engine-independent facts about a track's analysis pipeline — bitrate, readiness, fingerprint, waveform cache, and overall status — that belong to no single engine and so live outside any Analysis Table. One row per track, alongside the Analysis Tables rather than inside one of them.
+_Avoid_: Analysis metadata, pipeline state, side table
+
+**Analysis History**:
+The append-only log of past analysis runs, one row per run rather than per track. Distinct from an Analysis Table: history answers "what happened over time," an Analysis Table answers "what is true right now."
+_Avoid_: Run log, audit log
+
 ## Structure
 
 **Segment**:
