@@ -1,7 +1,7 @@
 /**
  * ORBIT Python sidecar supervisor.
  *
- * Manages a POOL of persistent Python processes that run sidecar/main.py.
+ * Manages a POOL of persistent Python processes that run packages/sidecar/main.py.
  * Newline-delimited JSON framing, UUID correlation, wait-for-ready handshake,
  * restart-on-crash with a per-worker failure-count guard.
  *
@@ -12,13 +12,13 @@
  * (~300-600 MB resident), so at parallelism=8 the pool can use several GB — this is
  * the deliberate tradeoff for reusing the single parallelism slider.
  *
- * Dev: spawns via `uv run python main.py` from the sidecar/ directory.
+ * Dev: spawns via `uv run python main.py` from the @mixxxa/sidecar package directory.
  * Packaged: uses a frozen orbit-sidecar exe placed next to the bun bundle.
  */
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { Subprocess } from "bun";
 import type { DropsResult } from "../../shared/types";
 import { bunLog } from "../bunLog";
@@ -29,20 +29,32 @@ const EXE_NAME = process.platform === "win32" ? "orbit-sidecar.exe" : "orbit-sid
 // Production: frozen exe placed next to the bun bundle by the build step
 const PROD_EXE = join(import.meta.dir, EXE_NAME);
 
-// Dev: walk up from import.meta.dir until we find sidecar/main.py.
-// The bundle can be placed at varying depths in the build tree.
-function findDevSidecarDir(): string {
+// Dev: the sidecar is a workspace package, so resolve it through module
+// resolution rather than by walking the tree — Bun links workspace members into
+// node_modules under both linker modes, so this holds whichever one is active.
+// Lazy and guarded on purpose: this file is bundled into Resources/app/bun, and
+// in a packaged build PROD_EXE wins before the dev branch ever runs, so
+// resolution must never be able to throw at import time. The walk-up survives
+// only as a fallback.
+function resolveDevSidecarDir(): string {
+  try {
+    return dirname(Bun.resolveSync("@mixxxa/sidecar/package.json", import.meta.dir));
+  } catch {
+    return walkUpForSidecar();
+  }
+}
+
+function walkUpForSidecar(): string {
   let dir = import.meta.dir;
   for (let i = 0; i < 10; i++) {
-    const candidate = join(dir, "sidecar");
+    const candidate = join(dir, "packages", "sidecar");
     if (existsSync(join(candidate, "main.py"))) return candidate;
     const parent = join(dir, "..");
     if (parent === dir) break; // reached fs root
     dir = parent;
   }
-  return join(import.meta.dir, "../../../../../../sidecar"); // last-resort fallback
+  return join(import.meta.dir, "../../../../../../packages/sidecar"); // last-resort fallback
 }
-const DEV_SIDECAR_DIR = findDevSidecarDir();
 
 function resolveUvPath(): string {
   const fromPath = Bun.which("uv");
@@ -63,7 +75,7 @@ function getSpawnArgs(): { cmd: string[]; cwd: string } {
   if (existsSync(PROD_EXE)) {
     return { cmd: [PROD_EXE], cwd: import.meta.dir };
   }
-  return { cmd: [resolveUvPath(), "run", "python", "main.py"], cwd: DEV_SIDECAR_DIR };
+  return { cmd: [resolveUvPath(), "run", "python", "main.py"], cwd: resolveDevSidecarDir() };
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────

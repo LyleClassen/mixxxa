@@ -9,18 +9,29 @@ each domain concept, and the words we've decided not to use.
 ## Stack
 
 - **Runtime/bundler:** Bun (CJS+ESM mixed). The bun-process entry is
-  bundled by `electrobun dev` / `electrobun build`, which calls
-  `Bun.build` internally — see [node_modules/electrobun/src/cli/index.ts](node_modules/electrobun/src/cli/index.ts).
-- **Desktop shell:** Electrobun (uses WebView2 on Windows).
+  bundled by `electrobun dev` / `electrobun build`.
+- **Desktop shell:** Electrobun 2.x (uses WebView2 on Windows). The `electrobun`
+  npm package is only a bootstrap for the **Hutch** CLI — every one of its
+  exports throws. The real SDK is projected into `apps/mixxxa/.hutch/devkit`
+  by `electrobun prepare`, which `bun go` runs after `bun install`. Hutch
+  searches upward for the nearest config and treats that directory as the
+  project root, which is why the build runs from `apps/mixxxa`.
 - **View layer:** React 18 + Tailwind v4 + Vite 6 (HMR via dev server on
   `:5173`).
 - **Native module:** `rbox-js` (NAPI-RS, Rust) for Rekordbox DB access.
 
 ## Dev workflows
 
+Every command below is run from the **repo root**, where the scripts are thin
+`bun run --filter` passthroughs to the member that owns the work.
+
+- `bun go` — install, project the Hutch devkit (`electrobun prepare`), sync the
+  Python venv, then start HMR dev. The `prepare` step must come before anything
+  typechecks: without `.hutch/devkit` there is no tsconfig to extend.
 - `bun run dev` — Electrobun watch mode, no Vite HMR (uses bundled assets).
 - `bun run dev:hmr` — runs Vite (`:5173`) and Electrobun concurrently. The
-  bun process detects the dev server in [src/bun/index.ts](src/bun/index.ts)
+  bun process detects the dev server in
+  [apps/mixxxa/src/bun/index.ts](apps/mixxxa/src/bun/index.ts)
   and points the WebView at it.
 - `bun run start` — one-shot `vite build && electrobun dev`.
 
@@ -63,8 +74,9 @@ the patch and the `patchedDependencies` entry.
 
 ## Build output layout
 
-Electrobun produces a per-platform bundle under
-`build/dev-<platform>-<arch>/<app-name>-dev/`:
+Electrobun writes its build tree relative to the project root — the directory
+holding `electrobun.config.ts` — so the per-platform bundle lands under
+`apps/mixxxa/build/dev-<platform>-<arch>/<app-name>-dev/`:
 
 - `bin/launcher.exe` — entry binary. Running this directly skips the
   `electrobun dev` rebuild step and is useful for testing a patched
@@ -78,14 +90,19 @@ Electrobun produces a per-platform bundle under
 
 ### 1. `ffmpeg` binary
 
-`ffmpeg-static` is listed as an npm dependency and ships a platform `ffmpeg` binary at:
-```
-node_modules/ffmpeg-static/ffmpeg.exe  (Windows)
-node_modules/ffmpeg-static/ffmpeg      (Mac/Linux)
-```
-`src/bun/analysis/decoder.ts` imports the path via `import ffmpegPath from 'ffmpeg-static'`.
+`ffmpeg-static` is an app dependency and ships one platform `ffmpeg` binary.
+Never hardcode a `node_modules/...` path to it: under the isolated linker the
+resolved version is part of that path. Resolve the package instead.
+`apps/mixxxa/src/bun/analysis/decoder.ts` imports the path via `import ffmpegPath from 'ffmpeg-static'`.
 
-**Electrobun bundling caveat:** The Bun bundler inlines `ffmpeg-static`'s path string, but does NOT copy the binary into the app bundle. When building for distribution (`bun run build:canary`) you must arrange to ship the binary alongside the bundle (e.g., copy to `Resources/app/bun/ffmpeg.exe`) and adjust the path resolution in `decoder.ts`. During development (`bun run dev:hmr`) the path in `node_modules/` works as-is.
+**Electrobun bundling caveat:** The Bun bundler inlines the path string but does
+NOT copy the binary into the app bundle, so `electrobun.config.ts` stages it via
+`build.copy`. Those keys must stay **relative to the project root**: Electrobun
+2.x joins each one onto that root, not onto `process.cwd()`, which during config
+evaluation is a `.cottontail-tmp` scratch directory several levels down. Resolve
+the package, then relativise against `import.meta.dir`. A missing copy source is
+a hard build failure (`CopySourceMissing`, exit 1) — 1.18.1 only logged and
+continued, which could ship an installer with no ffmpeg and a zero exit code.
 
 ### 2. Analysis engines
 
@@ -98,29 +115,41 @@ Audio decoded to 44.1 kHz mono PCM in Bun and served over `GET /pcm/{itemId}`.
 Produces Key, BPM, Energy, Loudness (dBFS), Dynamic Range, and Danceability in
 one `analyzeOrbit()` call — structurally identical to the bitrate ffprobe path
 (completes without ever claiming a renderer worker). Key + mode from ORBIT are
-normalized to Camelot notation via the shared `src/shared/camelot.ts` map.
+normalized to Camelot notation via the shared
+`apps/mixxxa/src/shared/camelot.ts` map.
 
 ### 3. ORBIT Python sidecar
 
-Location: `sidecar/` (uv project, `orbit-dsp==1.0.1`).
+Location: `packages/sidecar/` — the workspace member `@mixxxa/sidecar` (uv
+project, `orbit-dsp==1.0.1`). The package owns `setup` and `build`; the root's
+`setup:python` and `build:sidecar` are `bun run --filter` aliases, so the path
+lives only in the workspace glob.
 
 **Dev workflow:**
 1. `bun run setup:python` — installs the Python venv via `uv sync`.
-2. Sidecar auto-starts on first ORBIT analysis request (`src/bun/analysis/sidecar.ts`).
+2. Sidecar auto-starts on first ORBIT analysis request
+   (`apps/mixxxa/src/bun/analysis/sidecar.ts`), which finds the package by
+   resolving `@mixxxa/sidecar/package.json` rather than by walking the tree.
    Process is kept warm between requests (librosa startup ~2s paid once).
 3. Manual test: pipe `{"id":"1","filePath":"<some.mp3>","maxLength":120}\n`
-   to `uv run python sidecar/main.py` and confirm one id-correlated JSON result.
+   to `uv run python packages/sidecar/main.py` and confirm one id-correlated
+   JSON result.
 
 **Build for distribution:**
-1. `bun run build:sidecar` — runs PyInstaller via `sidecar/build.spec`.
-   Output: `sidecar/dist/orbit-sidecar[.exe]` (~200–400 MB).
-2. Copy the exe to `Resources/app/bun/orbit-sidecar[.exe]` before packaging.
-   `sidecar.ts` checks for the exe next to the bundle; falls back to `uv run` in dev.
+1. `bun run build:sidecar` — runs PyInstaller via `packages/sidecar/build.spec`.
+   Output: `packages/sidecar/dist/orbit-sidecar[.exe]` (~200–400 MB).
+2. No manual copy. `electrobun.config.ts` stages that binary into the bundle as
+   a `build.copy` entry. The key is **conditional on the dev channel**: canary
+   and stable always demand the exe and fail the build without it, while dev
+   omits it when absent so a fresh checkout stays buildable. `sidecar.ts`
+   checks for the exe next to the bundle; falls back to `uv run` in dev.
 
 **Windows note:** Windows wheels exist for librosa/numpy/scipy (unlike essentia),
 so the frozen binary is viable on Windows.
 
-**PyInstaller note:** `sidecar/build.spec` uses `collect_all()` for librosa, numba,
+**PyInstaller note:** `pyinstaller` is declared in `packages/sidecar/pyproject.toml`'s
+`[dependency-groups] dev`, so `bun run setup:python` installs it and
+`bun run build:sidecar` works from a clean clone. `packages/sidecar/build.spec` uses `collect_all()` for librosa, numba,
 sklearn, and scipy to capture data files that PyInstaller misses otherwise.
 Test the frozen exe standalone before wiring into the full app build.
 
@@ -149,6 +178,107 @@ from the bun process (see `autoCueProgress`/`analysisQueueUpdate` in
 [src/bun/index.ts](src/bun/index.ts)) — and render a determinate indicator in
 the view.
 
+## Workspace packages
+
+> Conventions settled in
+> [#41](https://github.com/LyleClassen/mixxxa/issues/41) and
+> [#42](https://github.com/LyleClassen/mixxxa/issues/42). The Electrobun 1.18.1
+> CLI could not resolve the app's dependencies from `apps/mixxxa`; the 2.x
+> upgrade ([#47](https://github.com/LyleClassen/mixxxa/issues/47)) fixed that,
+> and both `electrobun dev` and `bun run build:canary` now work from the app
+> directory.
+
+`apps/` holds the Electrobun app. `packages/` holds everything else,
+whatever language it is written in — the Python sidecar included. Every
+member under `packages/` is scoped `@mixxxa/<name>`, so the workspace
+name and the published name are the same string and nothing gets renamed
+on the day something first ships.
+
+### Names
+
+Three tiers, and only the third is scoped. The root manifest is
+`mixxxa-workspace`, `"private": true` — orchestration only, never
+published and never imported. The app is `mixxxa`, unscoped, because it
+is the product rather than a candidate for npm. Packages are
+`@mixxxa/<name>`. Settled in
+[#42](https://github.com/LyleClassen/mixxxa/issues/42).
+
+The root declares **no ordinary dependencies**. Everything the app
+imports is declared by the app; the root manifest carries only
+`workspaces`, `patchedDependencies`, `trustedDependencies` and
+orchestration scripts. A root devDependency that nothing at the root
+imports is the phantom dependency the isolated linker exists to prevent.
+
+Two kinds of member live under `packages/`, and the only structural
+difference between them is the `private` field:
+
+- **Internal package** — `"private": true`. Exists to organise the repo.
+  `@mixxxa/sidecar` is the only one today.
+- **Publishable package** — no `private` field. Goes to npm.
+
+### Adding a publishable package
+
+Same `packages/*` glob as an internal one; do not invent a second
+directory for "the ones that ship". A package that changes status should
+change one field, not move.
+
+Its `package.json` needs, beyond the usual:
+
+```jsonc
+{
+  "name": "@mixxxa/<name>",
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "publishConfig": { "access": "public" },
+  "scripts": { "build": "tsc -p tsconfig.json" }
+}
+```
+
+`publishConfig.access` is load-bearing: scoped packages default to
+restricted, and npm rejects the publish rather than warning.
+
+It also needs **its own standalone `tsconfig.json` — no `extends`**. The
+root config is the app's config that happens to sit at the root, not a
+shared base: it sets `noEmit`, turns on `allowImportingTsExtensions`
+(which TypeScript refuses alongside emit), pulls in DOM libs and
+`react-jsx`, and defines a `@/*` alias into the app's view layer that a
+package must never use. So set `noEmit: false`, `declaration: true` and
+`outDir: "dist"` in a config of its own. If a genuine shared base is ever
+wanted, that is a `tsconfig.base.json`, and nobody needs one yet.
+
+**Publishing TypeScript source directly is not the convention.** It works
+only while every consumer is Bun, which is exactly the assumption a
+package leaving this repo stops being able to make.
+
+### Dependency direction
+
+One way. `apps/mixxxa` may depend on any package; **no package may ever
+depend on `apps/mixxxa`**. A published package that imports from the app
+is unpublishable by construction. Package-to-package dependencies are
+fine — that is what the workspace is for.
+
+Nothing enforces this. There is no CI in this repo, and a check script
+with nothing to run it is decoration. With one app and one package the
+rule is hard to break by accident; revisit if either number grows.
+
+### The `@mixxxa` scope is unverified
+
+Nobody has registered the `mixxxa` org on npm, and registering it was
+deliberately not done. Whoever publishes first must check the scope is
+still available and pick a fallback if it is gone. The internal packages
+do not care either way, since a private package's name never reaches the
+registry.
+
+### Deliberately deferred
+
+Considered and left until there is something real to publish, not
+forgotten:
+
+- **Changesets**, and any versioning policy at all.
+- **npm auth** — no token, no org, no `.npmrc`.
+- **A release job** — there is no CI to hang one off.
+
 ## Agent skills
 
 ### Issue tracker
@@ -165,11 +295,26 @@ Single-context — `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents
 
 ## Gotchas
 
+- The app's `tsconfig.json` extends `./.hutch/devkit/tsconfig.json`, which is
+  what supplies the `electrobun` → devkit path map. `extends` merges
+  `compilerOptions` **shallowly**, so the app's own `paths` block replaces that
+  map entirely — the `electrobun`, `electrobun/bun` and `electrobun/view`
+  entries are re-stated there by hand. Import a new `electrobun/*` subpath and
+  you must add it, or `tsc` stops resolving it.
+- `vite.config.ts` aliases `electrobun/view` at the devkit. Without that alias
+  Vite compiles the bootstrap's `throw` straight into the view bundle **with a
+  green exit code** — the one Electrobun 2.x failure a passing build hides. Any
+  change to the view's Electrobun imports must be verified by *running* the app,
+  not by a successful `vite build`.
+- `bun run build:canary` shells out to `tar`. On Windows it needs the bsdtar at
+  `C:\Windows\System32\tar.exe`; if a Git-for-Windows shell puts GNU tar ahead
+  of it on `PATH`, the release step dies with `tar: Cannot connect to C:` because
+  GNU tar reads `C:\...` as a remote host. Build from PowerShell.
 - The Vite dev server is plain HTTP on `:5173`; the bun process probes
   it with `fetch(..., { method: 'HEAD' })` and falls back to bundled
   assets if it isn't up. Don't expect HMR to "just work" if Vite hasn't
   started yet.
-- `electrobun dev` re-bundles `src/bun/**` on every restart, so any
+- `electrobun dev` re-bundles `apps/mixxxa/src/bun/**` on every restart, so any
   manual edits to `Resources/app/bun/index.js` are wiped. Test fixes by
   running `build/.../bin/launcher.exe` directly if you need to bypass
   the rebuild.

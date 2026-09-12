@@ -15,3 +15,12 @@ __pycache__/
 
 # Enviroment Variables
 .env
+
+# Python build detritus / virtualenv
+*.egg-info/
+.venv/
+build_work/
+
+# Electrobun 2.x / Hutch build toolchain
+.hutch/
+.cottontail-tmp/

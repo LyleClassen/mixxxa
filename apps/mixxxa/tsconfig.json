@@ -1,0 +1,36 @@
+{
+	// The devkit config supplies the `electrobun` -> .hutch/devkit path map.
+	// `extends` merges compilerOptions shallowly, so declaring `paths` here
+	// REPLACES that map — the three entries below re-state the subpaths this app
+	// imports, rebased onto the devkit. Importing a new `electrobun/*` subpath
+	// means adding it here; tsc fails loudly if you forget.
+	"extends": "./.hutch/devkit/tsconfig.json",
+	"compilerOptions": {
+		"target": "ES2020",
+		"useDefineForClassFields": true,
+		// ES2021 (not ES2020) only because the devkit's own WindowsUpdateTask.ts uses
+		// AggregateError, and paths-mapped devkit sources enter the program.
+		"lib": ["ES2021", "DOM", "DOM.Iterable"],
+		"module": "ESNext",
+		"skipLibCheck": true,
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"isolatedModules": true,
+		"moduleDetection": "force",
+		"noEmit": true,
+		"jsx": "react-jsx",
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noFallthroughCasesInSwitch": true,
+		"baseUrl": ".",
+		"paths": {
+			"@/*": ["src/mainview/*"],
+			"electrobun": ["./.hutch/devkit/api/sdks/main/index.ts"],
+			"electrobun/bun": ["./.hutch/devkit/api/sdks/main/index.ts"],
+			"electrobun/view": ["./.hutch/devkit/api/browser/index.ts"]
+		}
+	},
+	"include": ["src", "electrobun.config.ts"],
+	"exclude": ["node_modules", "dist", "build"]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@mixxxa/sidecar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Python sidecar host — uv project behind the frozen orbit-sidecar binary",
+  "scripts": {
+    "setup": "uv sync",
+    "build": "uv run pyinstaller build.spec"
+  }
+}
