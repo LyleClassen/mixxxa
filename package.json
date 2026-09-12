@@ -8,7 +8,8 @@
     "packages/*"
   ],
   "scripts": {
-    "go": "bun install && bun run setup:python && bun run dev:hmr",
+    "go": "bun install && bun run prepare:electrobun && bun run setup:python && bun run dev:hmr",
+    "prepare:electrobun": "bun run --filter mixxxa prepare:electrobun",
     "setup:python": "bun run --filter @mixxxa/sidecar setup",
     "build:sidecar": "bun run --filter @mixxxa/sidecar build",
     "dev": "bun run --filter mixxxa dev",

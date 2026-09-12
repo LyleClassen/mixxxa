@@ -17,3 +17,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = []
+
+[dependency-groups]
+# PyInstaller is build-only: `bun run build:sidecar` freezes the exe with it.
+# uv sync installs the dev group by default, so setup:python covers it.
+dev = [
+    "pyinstaller>=6.0",
+]

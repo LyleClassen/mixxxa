@@ -1,14 +1,15 @@
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { ElectrobunConfig } from "electrobun";
 
 const require = createRequire(import.meta.url);
 
-// Electrobun re-joins every build.copy key onto projectRoot (process.cwd()),
-// so the keys MUST be relative — an absolute key concatenates into nonsense and
-// the copy loop only console.errors and continues, shipping an installer with a
-// missing binary and a zero exit code. Resolve, then relativise against cwd.
-const rel = (absolute: string) => path.relative(process.cwd(), absolute);
+// Electrobun 2.x joins every build.copy key onto the *project root* — the
+// directory holding this config — not process.cwd(), which during config
+// evaluation is a .cottontail-tmp scratch dir five levels down. So the keys
+// MUST be relative to import.meta.dir. Resolve, then relativise.
+const rel = (absolute: string) => path.relative(import.meta.dir, absolute);
 
 // The static packages' physical location depends on the linker mode and on the
 // resolved version, so nothing here may be hardcoded as node_modules/... .
@@ -32,14 +33,18 @@ const chromaprintWasm = path.join(
 	"chromaprint.wasm",
 );
 // The frozen sidecar, built by `bun run build:sidecar` at the workspace root.
-// Absent in a fresh checkout, which costs one `failed to copy` line per
-// `electrobun dev` run — deliberately preferred to a conditional key, which
-// would turn a noisy dev case into a silent release one.
 const sidecarExe = path.resolve(
 	import.meta.dir,
 	"../../packages/sidecar/dist",
 	`orbit-sidecar${EXE}`,
 );
+
+// v2 hard-fails the build with CopySourceMissing on an absent copy source, so
+// the dev channel omits the sidecar rather than making a fresh checkout
+// unbuildable. Canary and stable always demand it: a release with no sidecar
+// must fail loud, which is exactly what 1.18.1's silent console.error did not.
+const buildEnv = process.env.ELECTROBUN_BUILD_ENV ?? "dev";
+const includeSidecar = buildEnv !== "dev" || existsSync(sidecarExe);
 
 export default {
 	app: {
@@ -50,6 +55,10 @@ export default {
 		version: "0.0.1",
 	},
 	build: {
+		// v2 defaults to "cottontail". The main process uses bun:ffi, the rbox-js
+		// NAPI binding, and spawns ffmpeg and the Python sidecar — Cottontail is a
+		// separate evaluation, not part of the v2 upgrade.
+		mainProcess: "bun",
 		// Vite builds to dist/, we copy from there
 		copy: {
 			"dist/index.html": "views/mainview/index.html",
@@ -60,7 +69,9 @@ export default {
 			// so binaries.ts's resolver (step 1: next-to-bundle) finds them.
 			[rel(ffmpegBin)]: `bun/ffmpeg${EXE}`,
 			[rel(ffprobeBin)]: `bun/ffprobe${EXE}`,
-			[rel(sidecarExe)]: `bun/orbit-sidecar${EXE}`,
+			...(includeSidecar
+				? { [rel(sidecarExe)]: `bun/orbit-sidecar${EXE}` }
+				: {}),
 		},
 		// Ignore Vite build output in watch mode
 		watchIgnore: ["dist/**"],
