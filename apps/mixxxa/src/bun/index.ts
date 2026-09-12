@@ -22,10 +22,22 @@ const DEV_SERVER_URL = `http://localhost:${DEV_SERVER_PORT}`;
 async function getMainViewUrl(): Promise<string> {
 	const channel = await Updater.localInfo.channel();
 	if (channel === "dev") {
+		// A bare connection check is not enough: a stale Vite left over from
+		// another cwd (or any unrelated process) holding 5173 accepts the socket
+		// and then serves 404, which loads as a blank window. Require a 2xx that
+		// actually contains this app's entry so we only attach to *our* server.
 		try {
-			await fetch(DEV_SERVER_URL, { method: "HEAD" });
-			console.log(`HMR enabled: Using Vite dev server at ${DEV_SERVER_URL}`);
-			return DEV_SERVER_URL;
+			const res = await fetch(DEV_SERVER_URL, {
+				signal: AbortSignal.timeout(2000),
+			});
+			const html = res.ok ? await res.text() : "";
+			if (res.ok && html.includes("/main.tsx")) {
+				console.log(`HMR enabled: Using Vite dev server at ${DEV_SERVER_URL}`);
+				return DEV_SERVER_URL;
+			}
+			console.warn(
+				`Port ${DEV_SERVER_PORT} is serving something that is not the mixxxa view (HTTP ${res.status}). Falling back to the bundled view — check for a stale 'vite' process.`,
+			);
 		} catch {
 			console.log(
 				"Vite dev server not running. Run 'bun run dev:hmr' for HMR support.",
